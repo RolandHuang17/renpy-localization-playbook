@@ -20,6 +20,10 @@ import re
 import sys
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 TAGS = re.compile(r"\{[^{}]*\}")
 INTERP = re.compile(r"\[[^\[\]]*\]")
 
@@ -32,7 +36,9 @@ def check(en, zh):
     names_only = not re.search(r"[a-z]{2,}", re.sub(r"\b[A-Z][A-Za-z]*\b", "", en))
     if not CJK.search(zh or "") and not names_only:
         problems.append("no-cjk")
-    if zh and zh.strip() == en.strip():
+    # moans, onomatopoeia and name-only lines are returned verbatim on purpose -
+    # build_tl prints them as one line instead of showing the English twice
+    if zh and zh.strip() == en.strip() and not names_only:
         problems.append("identical")
     for pat, label in ((TAGS, "tag"), (INTERP, "interp")):
         a = collections.Counter(pat.findall(en))
@@ -69,9 +75,12 @@ def main():
                 continue
             if rid in seen:
                 dup += 1
-                if seen[rid] != zh:
-                    bad.append((rid, "conflicting duplicate", zh))
-                continue
+                if seen[rid] == zh:
+                    continue
+                # A later shard may deliberately replace an earlier value: the audit
+                # that finds a problem runs after the merge, so the fix has to win.
+                # Shards are read in sorted order, so name fixups out_9x.json.
+                lines.append("   OVERRIDE %s by %s" % (rid, os.path.basename(sh)))
             seen[rid] = zh
             probs = check(r["en"], zh)
             if probs:

@@ -20,6 +20,7 @@ Usage:
 import argparse
 import collections
 import json
+import os
 import re
 import sys
 
@@ -32,6 +33,8 @@ TAGS = re.compile(r"\{[^{}]*\}")
 INTERP = re.compile(r"\[[^\[\]]*\]")
 CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
 LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
+# an e-mail address or a URL is data, not prose - translating it breaks the link
+CONTACT = re.compile(r"(?:https?://|www\.)\S+|\S+@\S+\.\w+|\S+\.(?:com|net|org|io|gg|site)(?:/\S*)?")
 LOWERCASE_LEAK = re.compile(r"(?<![A-Za-z])[a-z]{4,}(?![A-Za-z])")
 STOP = {
     "Miss", "Ms", "Mr", "Mrs", "Ma", "am", "God", "Lord", "He", "She", "It",
@@ -84,12 +87,32 @@ def main():
                     help="enforce exactly --names: auto-detection also picks up "
                          "capitalised SFX (*Giggle*) and game terms (Pregnancy), "
                          "which are terminology choices, not misalignment")
+    ap.add_argument("--names-from", default="localization/speakers.json",
+                    help="the extractor's speakers.json: its Character display "
+                         "names are added to --names, so the hard set is the game's "
+                         "own cast without typing them out")
+    ap.add_argument("--allow-file", default="localization/leak_allow.txt",
+                    help="one token per line: project terminology deliberately kept "
+                         "in latin script (fictional terms, brand names). Exempt from "
+                         "LEAK, and listed in the report so the choice stays visible")
     ap.add_argument("--report", default="localization/align_report.txt")
     args = ap.parse_args()
 
     recs = json.load(open(args.json, encoding="utf-8"))
     known = {n for n in re.split(r"[,\s]+", args.names) if n}
+    if args.names_from and os.path.isfile(args.names_from):
+        try:
+            dn = json.load(open(args.names_from, encoding="utf-8")).get("display_names", {})
+            known |= {v for v in dn.values()
+                      if v and re.fullmatch(r"[A-Za-z]{3,}", v)}
+        except Exception:
+            pass
     names = known if args.only_names else (proper_nouns(recs) | known)
+    allow = set()
+    if args.allow_file and os.path.isfile(args.allow_file):
+        allow = {ln.strip().lower() for ln in open(args.allow_file, encoding="utf-8")
+                 if ln.strip() and not ln.startswith("#")}
+    allowed_hits = collections.Counter()
     hard, warn = [], []
     for r in recs:
         en, zh = r["en"], r.get("zh") or ""
@@ -103,10 +126,15 @@ def main():
             if has(zh, n) and not in_en:
                 warn.append(("EXTRA-NAME", r["id"], r["line"], n, en[:60], zh[:60]))
         # {tags} and [interpolations] are markup/code identifiers, not prose
-        for leak in LOWERCASE_LEAK.findall(INTERP.sub(" ", TAGS.sub(" ", zh))):
+        for leak in LOWERCASE_LEAK.findall(
+                CONTACT.sub(" ", INTERP.sub(" ", TAGS.sub(" ", zh)))):
+            if leak.lower() in allow:
+                allowed_hits[leak.lower()] += 1
+                continue
             hard.append(("LEAK", r["id"], r["line"], leak, en[:60], zh[:60]))
 
-    lines = ["enforced names: %s" % ", ".join(sorted(names))]
+    lines = ["enforced names: %s" % ", ".join(sorted(names)),
+             "leak allowlist: %s" % (", ".join(sorted(allowed_hits)) or "nothing matched")]
     for kind, rid, line, tok, en, zh in hard:
         lines.append("%s %s (script line %s) [%s]\n    en: %s\n    zh: %s"
                      % (kind, rid, line, tok, en, zh))

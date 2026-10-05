@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | **A 归档型** | `game/` 下只有 `*.rpa` + `tl/None/`，没有散落 `.rpy` | `tools/extract.py`（解 RPA3 索引 + RPC2 容器 + stub unpickler 反序列化 AST），自带官方译文在归档里时按 identifier 连接 |
 | **B 散文本型** | `game/*.rpy` 能直接读到明文 | `tools/rpy_extract.py`（只收 `label` 块内的 say 语句） |
+| **B-compiled 散文本但带 `.rpyc`** | `game/` 下 `.rpy` 和 `.rpyc` 成对出现 | `tools/rpyc_extract.py`（反序列化引擎真正加载的 AST 取 `Say.what`；正则扫明文会因认不出说话人变量而整批漏句） |
 | **B+ 散文本 + 自带明文官方译文** | `game/tl/<lang>/*.rpy` 也是明文 | 上一步之后接 `tools/tl_reuse.py`（按**内容**配对，省掉 99% 翻译量） |
 
 三种模式共用同一份 `localization/en-zh.json` 记录结构，所以生成、校验、回滚三段完全一致。
@@ -21,12 +22,13 @@
 把 `RENPY_LOCALIZATION_PLAYBOOK.md` 和 `tools/` 一起复制到游戏根目录，然后：
 
 ```bash
-# 模式 B（散文本）示例
+# 模式 B（散文本）示例。有 .rpyc 就换成 tools/rpyc_extract.py（多一个 --reuse）
 python tools/rpy_extract.py --game game --out localization/en-zh.json
 python tools/tl_reuse.py --tl game/tl/chinese --apply   # 仅 B+：游戏自带明文官方中文时
 # …翻译写进 localization/out_NN.json（{id: 中文}）…
-python tools/apply_trans.py
-python tools/align_check.py --only-names --names "<speakers.json 的显示名>"   # 必须 FAILURES: 0
+python tools/repair_json.py --in localization/out_11.json --group localization/groups/group_01.json
+python tools/apply_trans.py          # 后到的 out_9x_*.json 可覆盖修正（审计发现的问题就地改）
+python tools/align_check.py          # 必须 FAILURES: 0；刻意保留的外语/品牌写进 localization/leak_allow.txt
 python tools/build_tl.py --lang zh --kinds say --layout zh-first \
     --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf \
     --text-size <比 gui.text_size 小 1~2 档的值> --flag <项目缩写>_bi_off --clean
@@ -47,12 +49,16 @@ python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文�
 | `rpautil.py` | RPA3 索引 / RPC2 slot / stub unpickler / AST 遍历，模式 A 的公共底座 |
 | `extract.py` | 模式 A 抽取，并按 identifier 连接归档里自带的官方译文 |
 | `rpy_extract.py` | 模式 B 抽取（明文 `.rpy`） |
+| `rpyc_extract.py` | 模式 B 但游戏带 `.rpyc` 时的抽取器：反序列化引擎真正加载的 AST 取 `Say.what` / `Menu` 标题（`old` 与引擎查表的字节完全一致），`--reuse` 按 identifier 连自带官方译文。`Character` 显示名回落到读 `.rpy`——8.1.2 的 AST 里源码只剩位置 |
+| `textbox_fit.py` | 双语行数的量化决策：读 `gui.rpy` 的宽高与字号，从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size`（§5.2 第 1-2 步的数据来源） |
+| `repair_json.py` | 回收侧机械修复 agent 手写的 JSON（key 丢开引号、值里有未转义引号）；修完必须与 group 的 id 集合完全对齐才写回，否则退回重派 |
+| `make_selftest.py` + `selftest_template.rpy` | §9.0 的游戏内自检 harness：探针从真源 JSON 生成，走真实 say 屏幕，自动写 `translate_string` 命中报告 + 12 张截图 |
 | `tl_reuse.py` | 模式 B+ 复用官方译文：解析明文 `translate <lang>` 块，按内容配对（含说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对） |
 | `denames.py` | 复用官方译文时，把音译人名还原成原文；`--seed` 可喂已知名字表出候选（**只出候选，别直接 `--apply`**，放宽闸门会抓出同句共现词） |
 | `dump_groups.py` | 把未译条目按序切成大组，供批量派工 |
 | `apply_trans.py` | 合并译文分片，做标签 / 插值 / 换行守恒预检，拒绝项进 `rejected/` |
-| `align_check.py` | 对齐与漏译审计（标签守恒抓不到"错位一行"，这里补上）。`--only-names` 用角色显示名当唯一硬判据，`[...]` 插值不算漏译 |
-| `build_tl.py` | 生成 `tl/<lang>/**.rpy` + 语言 / 字体 / 断行 / 对白框装配文件。`--font-ref` 引用游戏已自带的字体（零新增文件），`--window-style` / `--window-ypos` 处理固定高度对白框 |
+| `align_check.py` | 对齐与漏译审计（标签守恒抓不到"错位一行"，这里补上）。硬失败只认**游戏自己的角色名**（默认从 `speakers.json` 读，也可 `--names` / `--only-names`），其余大小写猜测降级为告警；网址 / 邮箱不算漏译；刻意保留的外语与术语写进 `localization/leak_allow.txt`，报告里回显命中了哪些 |
+| `build_tl.py` | 生成 `tl/<lang>/**.rpy` + 语言 / 字体 / 断行 / 对白框装配文件。`--text-size` 是双语塞不下时的唯一推荐手段（§5.2）；`--font-ref` 引用游戏已自带的字体（零新增文件）；`--window-style` / `--window-ypos` / `--textbox-height` 只在用户明确要求改几何时用，`--window-bg none` 对应 `style window` 本来就 `background None` 的游戏 |
 | `qa.py` | BOM、`old` 唯一性、逐字节等于源串、双语对完整性、覆盖率 |
 | `uninstall.py` | 一键回滚，扫 `tl/<lang>/` 下全部文件（含复制进去的字体） |
 
@@ -65,5 +71,5 @@ python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文�
 ## 已验证项目
 
 Sunset Rose 0.3（A，无官方译文，3,966 条）、Midnight Paradise 1.1（A，复用官方中文 53,762 / 59,201 条）、
-The Tutor 1.0（B，323 条）、By Justice or Mercy v25（B+，18,164 条对白复用 18,544 条唯一串，真缺口 64 条）。
+The Tutor 1.0（B，323 条）、By Justice or Mercy v25（B+，18,164 条对白复用 18,544 条唯一串，真缺口 64 条）、Milfylicious 2 0.37（B 带 `.rpyc`，8.1.2，**20,543 条全量自译**）。
 引擎 8.5.3 / 8.5.2 / 8.4.2 / 8.3.7。工时与异常红线见手册 §15。

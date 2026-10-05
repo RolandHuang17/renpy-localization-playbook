@@ -21,12 +21,20 @@ def main():
     ap.add_argument("--size", type=int, default=420)
     ap.add_argument("--chars", type=int, default=26000, help="soft cap per group")
     ap.add_argument("--kinds", default="say")
+    ap.add_argument(
+        "--files", default="",
+        help="comma list of source-file substrings to keep (phased rollout: do the "
+             "intro file first, verify the layout, then dispatch the routes)",
+    )
     ap.add_argument("--only-untranslated", action="store_true", default=True)
     args = ap.parse_args()
 
     recs = json.load(open(args.json, encoding="utf-8"))
     kinds = tuple(k.strip() for k in args.kinds.split(","))
+    files = tuple(f.strip() for f in args.files.split(",") if f.strip())
     todo = [r for r in recs if r["kind"] in kinds and not r.get("zh")]
+    if files:
+        todo = [r for r in todo if any(f in r["file"] for f in files)]
     todo.sort(key=lambda r: (r["file"], r["line"]))
 
     if os.path.isdir(args.outdir):

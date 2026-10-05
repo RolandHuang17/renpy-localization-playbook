@@ -75,12 +75,26 @@ def find_cjk_fonts(game_dir, extra_dirs=()):
                 if fn.lower().endswith((".ttf", ".otf")) and any(
                     h.lower() in fn.lower() for h in CJK_FONT_HINTS
                 ):
-                    found.append(os.path.join(d, fn))
+                    full = os.path.join(d, fn)
+                    # renpy.loader resolves a font path relative to the game directory,
+                    # so `game\tl\zh\font\X.ttf` has to become `tl/zh/font/X.ttf` or the
+                    # style block loads nothing and every CJK glyph is a tofu box.
+                    rel = os.path.relpath(full, game_dir).replace("\\", "/")
+                    found.append(rel[len("game/"):] if rel.startswith("game/") else rel)
     return sorted(set(found))
 
 
+FONT_REF_RE = re.compile(r"""["']([^"'\n]+\.(?:ttf|otf|ttc))["']""")
+
+
 def game_fonts(game_dir):
-    """All latin-ish .ttf/.otf paths the game can render text with."""
+    """All fonts the game can render text with.
+
+    Two sources: files inside `game/` (or an archive) and font paths the script
+    *references* - a stock distribution keeps `gui.text_font = "DejaVuSans.ttf"`
+    pointing at the engine's own `renpy/common/`, which no scan of `game/` finds,
+    and a game with no archive at all has nothing to scan.
+    """
     out = set()
     for root, dirs, files in os.walk(game_dir):
         dirs[:] = [d for d in dirs if d not in ("saves",)]
@@ -97,6 +111,14 @@ def game_fonts(game_dir):
             elif fn.lower().endswith((".ttf", ".otf")):
                 rel = os.path.relpath(os.path.join(root, fn), game_dir).replace("\\", "/")
                 out.add("game/" + rel if not rel.startswith("game/") else rel)
+            elif fn.endswith(".rpy") and "tl" not in os.path.normpath(root).split(os.sep):
+                try:
+                    src = open(os.path.join(root, fn), encoding="utf-8-sig",
+                               errors="replace").read()
+                except OSError:
+                    continue
+                for m in FONT_REF_RE.finditer(src):
+                    out.add(m.group(1))
     return sorted(out)
 
 
@@ -226,12 +248,14 @@ def style_blocks(lang, font_mode, primary, textbox_height,
         # text, so SL wraps them in a Fixed, and a Fixed reports the whole
         # available area as its size - the window silently becomes fullscreen
         # and the stretched background dims the entire game.
-        body += (
-            "\ntranslate %s style say_window:\n"
-            "    ysize %d\n"
-            "    background Frame(\"%s\", %s, xalign=0.5, yalign=1.0)\n"
-            % (lang, textbox_height, window_bg, window_borders)
-        )
+        body += ("\ntranslate %s style say_window:\n    ysize %d\n" % (lang, textbox_height))
+        if window_bg and window_bg.lower() not in ("none", "auto"):
+            # A taller window drawn with a plain image leaves a gap above it, because
+            # images are bottom-anchored, so the art has to become a Frame. A game
+            # whose `style window` says `background None` must stay that way - pass
+            # `--window-bg none` or an opaque panel appears where there was none.
+            body += '    background Frame("%s", %s, xalign=0.5, yalign=1.0)\n' % (
+                window_bg, window_borders)
     # Alternative to the above when the artwork must not stretch: move the box up.
     # NOTE the style names - a game whose `screen say` says `style "window"` never
     # touches say_window, so `--window-style window,window1` is what works there.

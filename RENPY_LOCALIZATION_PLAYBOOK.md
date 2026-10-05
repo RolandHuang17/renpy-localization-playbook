@@ -2,9 +2,9 @@
 
 > 面向执行者（人或编码 agent）的可复制流程。适用于 **Ren'Py 官方发行的 PC/zip 版游戏**（含打包脚本、无源码）。
 > **默认需求全在 §0.5**——只丢这份 md 时那 7 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
-> 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--text-size`、§5.2 的"对白框几何不许动"这条口径，与 §9.0 的探针方法学。
-> 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7** 上都验证过；标注版本相关的条目换版本需复验。
-> 配套工具集（11 个纯标准库 Python 文件，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）与 By Justice or Mercy（散文本 + 自带明文官方译文型）三个项目的 `tools/` 下。
+> 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--text-size`、§5.2 的"对白框几何不许动"这条口径，与 §9.0 的探针方法学；最新的 Milfylicious 2 0.37（2026-10-06，**20,543 条对白 / 162 万字符，散文本但带 `.rpyc`、无官方中文**）补上了 §0 的 AST 抽取分支、§14.1 的分阶段派工，以及 §8 的子 agent 跑偏判据。
+> 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7 / 8.1.2** 上都验证过；标注版本相关的条目换版本需复验。
+> 配套工具集（15 个纯标准库 Python 文件 + 1 个自检 harness 模板，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）、By Justice or Mercy（散文本 + 自带明文官方译文型）与 Milfylicious 2（散文本 + 自带 `.rpyc`、无官方中文、全量自译型）四个项目的 `tools/` 下。
 
 ---
 
@@ -29,6 +29,7 @@
 
 | 观察 | 结论 |
 | --- | --- |
+| `game/` 下同时有 `.rpy` **和** `.rpyc`（发行包自带编译产物） | **模式 B 改走 `tools/rpyc_extract.py`，不要正则扫明文**：引擎加载的是时间戳更新的那份（通常是 `.rpyc`），而正则靠 `Character("字面量")` 认说话人，`x = Character(动态名)` / 玩家命名的主角整个认不出来——实测漏 2,541 条（占全部对白 12.6%），漏的正好是台词最多的主角 |
 | 有 `game/saves/`、`game/.../` 且能读到 `.rpy` 明文 | **模式 B**：用 `tools/rpy_extract.py`（§14 的 B 分支）。不需要解归档，但**仍然走 `tl/` 覆盖层**，不要直接改源码——改了就没法一键撤销 |
 | 模式 B 且 `game/tl/<lang>/*.rpy` 是**明文**（不是归档里的 `.rpyc`） | **模式 B + 自带官方译文**：`rpy_extract.py` 抽源文，再用 `tools/tl_reuse.py` 按内容配对官方译文（§3.6）。这是 By Justice or Mercy v25 的形态，18,608 条里 18,544 条直接复用，缺口只剩 64 条 |
 | `game/` 下只有 `*.rpa` + `tl/None/`，无散落 `.rpy` | **本手册的主场景**：脚本被编译进归档，必须走提取 + `tl/` 覆盖层 |
@@ -101,6 +102,8 @@ def find_class(module, name):
 - `renpy.astsupport.PyExpr`：通过 `REDUCE` 构造，**Python 源码是构造参数 `args[0]`**。`__init__` 不保存 args 的话，节点 `__dict__` 会是空的 `{}`——这是最容易踩的坑（本项目第一次跑 `speaker variables: 0`、`uwrap` 全空就是这个原因）。
 
 > 8.5.2 里 `renpy/astsupport.py` 甚至没有随包发布，只能靠 `__reduce__` 的元数据反推。**先打印一个节点的原始 state 再写解析代码**，别猜。
+>
+> **8.1.2 的第三种形态**：`PyCode.__getstate__` 的 source 既不是字符串，也不是带 `_reduce_args` 的 PyExpr，而是 `renpy.ast.PyExpr(filename, linenumber, py)`——**源码只留在 `.rpy` 里，AST 里只有位置**。所以 `pycode_source()` 在这种版本上必然返回 `None`，`uwrap` 抽取必须回落到读 `.rpy`；但 `Say.what` 是**普通字符串**，对白抽取完全不受影响。`rpyc_extract.py` 的取舍即由此而来：串取 AST，`Character` 显示名取 `.rpy`。
 
 ---
 
@@ -276,6 +279,7 @@ The Tutor 实测：最长 7 行（中 3 + 英 4）= 267px，加 `ypos 75` = 342 
 2. 塞不下的比例太高时，**降字号**：`build_tl.py --text-size <比 gui.text_size 小 1~2 档的值>`。
    中英两行共用同一个 `say_dialogue` 样式，所以一个数同时缩小两行；`--text-size` 会顺带带上 `nvl_dialogue`。
    本项目实测：`gui.text_size 35 → 30` 后，典型对白（中 1 行 + 英 1 行）在原框里余量充足。
+> Milfylicious 2（1920×1080、`dialogue_width 1116`、`gui.text_size 38`、`textbox_height 278`）实测的阶梯：字号 38 / 34 / 32 / 30 下**中文出框率都是 0.0%**（中文紧凑、又排在上面，20,086 条里一条都没有），只有英文参考行会掉出去：20.8% / 13.9% / 11.0% / **0.6%**。所以"降两档"在这类游戏里一步就把问题基本消掉了，不必动框。数字用 `tools/textbox_fit.py` 出，别估。
 3. **最多降两档，再塞不下就让它溢出。** 溢出是可接受的结果，因为中文行排在上面（`--layout zh-first`），
    所以"中文一定看得见"这条底线自动成立，掉的只会是英文那一半——而英文玩家看的是原文，本来就读得懂。
 4. `--window-style` / `--window-ypos` 这两个开关留在工具里，但**只在用户明确要求改几何时使用**。
@@ -378,6 +382,8 @@ init -1000 python:
 
 - **批次要大**（本项目每组 ~420 条），小批次的固定开销会把 token 吃掉一个数量级：7 条的批次实测 30 万 token，420 条的批次 25–77 万。Midnight Paradise 缺口 5,439 条切成 13 组（每组 ≤430 条 / ≤27,000 字符），单组实测 23 万–155 万 token、3.5–7.5 分钟，**13 组后台并发一次跑完**。
 - **并发用后台 agent**（`run_in_background`），主线程同时做去音译、QA、构建，不空等。
+- **跑偏判据看 `tool_uses`，不看条数**：正常一组（~500 条 / 4 万字符）是 **3-4 次工具调用**（读 glossary、读 group、写 out、结束）。Milfylicious 2 的 35 组里有 3 组跑到 14/22/33 次，token 分别 260 万 / 370 万 / 630 万，而正常组只要 30-60 万——**这 3 组吃掉了全程约六成的量**。它们产出上没有任何差异（回收后同样 0 缺失），纯粹是反复读回、分片写、自我校验。所以：把"一次 Write 写完"写成 prompt 里的硬约束，回收后按 `tool_uses` 反查异常组。
+- **执行契约写进 glossary，不写进 prompt**：35 个 agent 共用一份 `localization/glossary.md`，prompt 只留 6 行（读哪两个文件、写哪一个、别自检）。契约放在共享文件里既省重复，也让"输出格式"这件事只有一个真源。
 - **prompt 要精简并明确禁止自检**：写死"不要写校验脚本、不要读真源 JSON、一次读完一次写完"。允许 agent 自我校验会让 token 翻几倍（第 11 组自己跑了校验，用到 155 万 token，是均值 2 倍）。
 - 每个 agent 只喂：术语表 + 该组 `{id, who, file, line, en}`；只回 `{id: 译文}`，不输出英文、不解释。
 - 给 agent 的上下文顺序：同一 `file` 内按 `line` 升序＝剧情发生顺序，必须连读，否则代词/时态/称呼全乱。
@@ -418,6 +424,7 @@ init -1000 python:
    同一个回调里用 `renpy.translation.translate_string("<真实英文行>")` 直接断言译文——**这比对截图更有说服力**，因为它走的就是对白实际使用的那条查找路径。再配 `renpy.game.preferences.language`、`renpy.translation.known_languages()`、`config.font_name_map` 三项，能一次确认"语言生效 / 表命中 / 字体映射就位"。
    **这个临时文件用完必须删干净**（见第 5 条）。
    **修正（8.3.7 复验）**：`renpy.screenshot()` 从回调里拿到的是**真实画面**，不是黑帧——"三条截屏路径全黑"说的是**外部**截屏工具打不进 SDL/GL 窗口，内部截图不受影响。所以"游戏自己截图"这条路在每个版本都可信。
+> **8.1.2 上写 harness 会撞到的四个 API 坑**（都表现为"我写的东西没生效"而不是报错）：① 自动前进的字段是 `preferences.afm_enable`，**`auto_forward` 这个名字在整个 8.x 里都不存在**（写错就是静默无效，症状是 12 张截图一模一样）；② `renpy.get_time()` 取不到——store 里的 `renpy` 是 `renpy.exports`，没有这个函数，改用 `import time` 自己计时；③ `renpy.translation.X` 不保证可用，但 `renpy.translate_string` / `renpy.known_languages` / `renpy.screenshot` / `renpy.jump_out_of_context` 都是 exports 上的直接名字，用它们；④ `init python` 块里 `import json` 不跨块共享，**每个 `init python:` 自己 import 一次**。
    **同一批复验里踩到的 API 坑**（都会让回调静默失败，症状是"报告没写出来"）：
    - `renpy.get_screen` / `renpy.style.get` 在 `init python` 块里**取不到**（`renpy` 包上没有这些属性）。要用 `renpy.exports.get_screen`，或 `import renpy.display.style`（8.3.7 里这个模块名不存在，样式断言别写死，改成"取不到就跳过"）。
    - 因此**别把布局验证建在样式自省上**，直接截图看。
@@ -444,7 +451,7 @@ init -1000 python:
 
      ```rpy
      label zz_lines:
-         $ renpy.game.preferences.auto_forward = True
+         $ renpy.game.preferences.afm_enable = True
          $ renpy.game.preferences.afm_time = 4.0
          $ renpy.game.preferences.text_cps = 0
          "…这里必须是逐字复制的源英文，标点也要一样…"
@@ -460,6 +467,7 @@ init -1000 python:
      而 `screen say` 就是靠它挑窗口样式/背景的）。在主菜单里做探针会走到"两个分支都不成立"的畸形渲染。
      所以布局探针必须先 `_X.jump_out_of_context("zz_selftest")` 进真实上下文，再在自己的 label 里渲染。
 1. **`RENPY_AUTO_LOAD=<存档名>` 环境变量**：启动即载入存档，直接进真实游戏界面。最有用的一招（前提是 `game/saves/` 里有存档；全新发行包通常没有）。
+> **启动方式会影响结论**：`setsid ./Game.exe &` 起的 Ren'Py 拿不到前台，`config.periodic_callbacks` 不再触发（harness 什么都不写，容易被误判成"代码没生效"）；直接 `./Game.exe > /dev/null 2>&1 &` 留在同一个 shell 里就正常。另外别把"生成 harness + 清报告 + 启动"整条链一起后台化，那会让轮询读到上一轮的旧报告——**生成和清理放前台，只后台化启动那一步**。
 2. **没有存档时怎么进剧情**：在 periodic 回调里执行 `renpy.jump_out_of_context("start")` —— 它 raise 的 `JumpOutException` 会冒泡到主菜单 context 的主循环并被正确处理，**等价于点 START**，且不像 `renpy.jump()` 那样跳过 store 初始化（见第 4 条）。实测能稳定进入 prologue 对白。
    **限定条件（8.3.7 实测）**：只有当前 context 是**主菜单**时才"被正确处理"。很多发行版在 `00start.rpy` 里先 `call _splashscreen`，而游戏的 `splashscreen` 是十几秒的警告视频 + 开场动画；在这期间抛 `JumpOutException` 会一路冒出 `run_context`，直接写 `traceback.txt` 崩给玩家看。所以要么用 `renpy.exports.get_screen("main_menu")` 卡住时机，要么把 tick 数给得足够晚（本项目 32s 才安全）。**回调里 catch 异常时务必把 `JumpOutException` 原样 raise 出去**，否则你吞掉的就是跳转本身，症状是"跳转没生效"。
 3. **键盘/鼠标合成都不可信**：合成鼠标点击送不进 SDL 窗口；方向键+回车**看起来**生效过，但对照实验证明那次进入剧情其实是第 2 条的 jump 造成的——**别把脚手架的效果记成输入的功劳**。`config.say_callbacks` 在 8.4.2 **不存在**（会抛 `config.say_callbacks is not a known configuration variable`，整个 init 块静默失败、回调根本没挂上），要抓对白请用 `config.allcharactercallbacks` 或直接放弃。
@@ -500,6 +508,10 @@ init -1000 python:
 | `tools/qa.py` | 校验：BOM、**`old` 无重复（重复=启动即崩）**、每个 `old` 确实等于某条真实源串、双语对里英文未丢失、标签/插值守恒、覆盖率 | → `qa_report.txt`，非零退出码表示有问题 |
 | `tools/rpy_extract.py` | **模式 B**：游戏直接给散文本 `.rpy` 时的抽取器。先收集 `Character(...)` 变量名，只认"裸字符串"或"已知角色变量 + 字符串"两种语句，并且**只收 `label` 块内的**——`screen`/`style` 块里的裸字符串（`"bottom_left"` 这类）会被误判成对白，缩进栈判上下文可以挡住它 | `game/**/*.rpy` → 与 `extract.py` 完全同构的 `en-zh.json` |
 | `tools/tl_reuse.py` | **模式 B 复用官方译文**：解析明文 `game/tl/<lang>/*.rpy` 里的 id 块 / `strings` 块，按**内容**配对（§3.6）。说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对是它的三条命门 | `tl/<lang>/*.rpy` + JSON → 就地填 `zh` + `reuse_report.txt` |
+| `tools/rpyc_extract.py` | **模式 B 的默认抽取器**（游戏带 `.rpyc` 时优先于 `rpy_extract.py`）：反序列化引擎真正加载的 AST，取 `Say.what` / `Menu` 标题——这就是引擎查 `strings:` 表时用的那几个字节，所以 `old` 不可能失配。`Character` 显示名回落到读 `.rpy`（8.1.2 的 AST 里源码只剩位置，见 §2）。`--reuse` 顺手按 identifier 连自带官方译文 |
+| `tools/textbox_fit.py` | §5.2 第 1-2 步的数据来源：从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size` 和（万一真要动几何时）所需 `ysize`，不拍脑袋 |
+| `tools/repair_json.py` | 回收侧机械修复：agent 手写的几百行 JSON 会出现"key 丢了开引号""值里有未转义引号"。按行修好后**必须与 group 的 id 集合完全对齐才写回**，对不上就退回重派——重派一组比误信一次修复便宜 |
+| `tools/make_selftest.py` + `tools/selftest_template.rpy` | §9.0 的现成 harness。探针语句从真源 JSON 生成；`mix` 模式按排版风险各取一条（最长行 / 带 `{size=26}` 补述 / 带名字框的台词 / 纯拟声单行）。跑完自动写 `selftest_report.txt`（`preferences.language`、`known_languages`、`font_name_map`、每条 `translate_string` 命中与否）和 12 张截图 |
 | `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
 | `tools/uninstall.py` | 一键回滚（按 manifest + 扫 `tl/<lang>/` 双保险）。**扫描要收目录下全部文件**，不能只挑 `.rpy`/`.rpyc`——`--cjk-font` 复制进去的字体也在 `tl/<lang>/font/` 里，漏了就不是"零残留" | — |
 | `localization/glossary.md` | 人名表（保持原文，不音译）+ 硬约束 + 风格基线，直接喂给翻译 agent | — |
@@ -528,6 +540,9 @@ init -1000 python:
 15. `zh` 字段连 `{标签}` 一起存，让标签守恒成为真闸门；生成器只负责拼中英两行。
 16. 翻完跑 `align_check.py`：标签检查抓不到"错位一行"，专名与漏译检查能。
 17. 交付前 `uninstall.py --dry-run` 列出的必须**恰好**是你新增的文件，包含复制进去的字体。
+18. **游戏带 `.rpyc` 就用 `rpyc_extract.py`**，别正则扫 `.rpy`：说话人变量认不出来就会整批静默漏句（实测漏 12.6%，漏的全是台词最多的主角）。
+19. **回收后按 `tool_uses` 反查异常组**（正常 3-4 次），并对每个分片跑 `repair_json.py` 对齐 id 集合；缺 key 的组要么补要么重派，不要带着缺口进生成。
+20. 审查报出的 `LEAK` 分两类：**普通英文词被偷懒留下 = 必须翻**（`dinner`、`intensity`、`Holy shit`）；**角色原话的外语、品牌 / 网址 / 游戏自造术语 = 保留并写进 `localization/leak_allow.txt`**，报告里回显命中了哪些，让豁免本身可审。还有一类是 `grand[m]` 这种**插值当词素用**的（`[m]` 是玩家填的 "mother"，合起来才是 grandmother），中文拆不出来，只能原样留 + 记账。
 18. **模式 B 且 `game/tl/<lang>/*.rpy` 是明文** → 用 `tl_reuse.py` 按内容配对官方译文（§3.6）；收割正则要能吃 `# mc "old"` / `mc "new"` 的说话人前缀形态，未知转义要连反斜杠一起保留，配对失败先试折叠空白。
 19. **布局自检必须走真 `renpy.say(who, tr, interact=False)`**（在真实游戏上下文里），`always_shown` + `use say(...)` 的自建 screen 是假故障制造机（§9.0）。
 20. **`denames.py` 报 0 candidates ≠ 官方没音译人名**。再 `grep '·'` 一次，并用 `align_check --only-names` 的"英文有名字、中文没有"清单逐行确认（§3.5 第 6/7 条）。
@@ -589,8 +604,9 @@ python tools/uninstall.py --dry-run           # 列出的必须全在你新增�
 判据：`find game -name '*.rpa'` 为空、`game/*.rpy` 能直接读到明文。**仍然不要改源码**，产物照旧落在 `game/tl/<lang>/`。
 
 ```bash
-# 1) 抽取（不需要解归档，所以不用 extract.py）
-python tools/rpy_extract.py --game game --out localization/en-zh.json
+# 1) 抽取。目录下有 .rpyc 就用 AST 版（引擎真正加载的是它，正则扫明文会漏说话人）
+python tools/rpyc_extract.py --game game --out localization/en-zh.json --reuse
+#   只有明文、没有 .rpyc 时才是：python tools/rpy_extract.py --game game --out localization/en-zh.json
 #   extract_report.txt 里确认三件事：
 #     character vars   : 只列出了真正的说话人变量
 #     say statements   : unique N，duplicate-old 应为 0（不为 0 说明有整句重复，已自动去重）
@@ -601,8 +617,11 @@ python tools/tl_reuse.py --tl game/tl/chinese            # 只看报告
 python tools/tl_reuse.py --tl game/tl/chinese --apply     # 本项目：18,608 条里 18,544 条直接复用
 #   然后 grep '·' localization/en-zh.json 查音译残留，按 §3.5 第 6/7 条手工补 names_manual.tsv
 
-# 2) 翻译：<=500 条直接主线程写 localization/out_NN.json（{id: 中文}，标签照抄）
-python tools/apply_trans.py          # 标签/插值/换行守恒预检
+# 2) 翻译。<=500 条主线程直接写；上千条切批派 agent（§8），但**先做一小片再全量**：
+#    先只派主线那几个文件，跑通第 3-5 步、亲眼看过截图，再派其余的（省掉一次全量返工）
+python tools/dump_groups.py --files "script.rpy,route_intro.rpy" --size 500 --chars 42000
+python tools/repair_json.py --in localization/out_11.json --group localization/groups/group_01.json
+python tools/apply_trans.py          # 标签/插值/换行守恒预检；后到的 out_9x_*.json 用于覆盖修正
 python tools/align_check.py --only-names --names "$(python -c "...")"   # 硬失败必须 0
 
 # 3) 生成 + 校验
@@ -613,7 +632,11 @@ python tools/build_tl.py --lang zh --kinds say --layout zh-first \
 #   对白框塞不下双语就靠 --text-size 解决；--textbox-height / --window-ypos 不要主动用（§5.2）
 python tools/qa.py                   # 必须 FAILURES: 0
 
-# 4) 游戏内自检（§9）：临时 harness 截图 + translate_string 断言，用完连 .rpyc 一起删
+# 4) 游戏内自检（§9）：现成 harness，探针从真源 JSON 取
+python tools/make_selftest.py localization/en-zh.json mix
+#   启动游戏（别用 setsid，见 §9），等 selftest_report.txt 里 hits N/N 和 shots/ 出现
+#   截图要亲眼看过：中文出框、名字框、纯拟声单行、豆腐块
+#   用完连 .rpyc 一起删：rm game/tl/zh/99zz_selftest.rpy game/tl/zh/99zz_selftest.rpyc
 # 5) python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文件（含字体）
 ```
 
@@ -655,6 +678,17 @@ python tools/qa.py                   # 必须 FAILURES: 0
 ≥6 行的 4 条极端长句英文那一半掉出框外——按 §0.5 第 8 条这是可接受结果，中文在上面所以中文必然看得见。
 
 **这条基线用来判断"小项目该花多久"**：散文本 + 几百条对白，正常应该在 1 小时内收工；如果超过，多半是（a）在对白框高度上返工（先读 `style window` 再动手）、或（b）反复重启游戏等过场（改用 §9 的临时 screen 验证布局，不必推进剧情）。
+
+**无官方译文的大项目基线（Milfylicious 2 0.37，2026-10-06，引擎 8.1.2，散文本 + 自带 `.rpyc`）**：
+20,543 条待译（say 20,090 / menu 453 / 162 万字符），自带语言只有 es 和 portuguese，**没有任何可复用的中文**。
+分两阶段做：先 8 组 2,954 条（主线 + 最短的一条 route）跑通全链路并亲眼看过截图，确认字号与语域后再派 35 组 17,136 条。
+产物 8 个 `.rpy`（5.98MB）+ 1 个字体，20,086 对双语，覆盖率 99.98%（剩 4 条纯呻吟，按规则原样输出单行）。
+`qa.py` FAILURES 0；`align_check.py` FAILURES 0 / warnings 117（全是语料启发式的名字告警）。
+几何按 §5.2：框完全不动，`--text-size 30`（38 降两档），中文出框 0 条、英文出框 0.6%。
+热缓存下 `Loading script` 3.81s（未加覆盖层的冷启动是 5.83s，**不同条件不能直接比**，要量对照得两次都热）。
+墙钟约 80 分钟，其中 35 组翻译的并发等待约 25 分钟。
+token：正常组 **30-60 万/组**，3 个跑偏组 260 / 370 / 630 万，全程约 2,400 万——**跑偏的 3 组占掉六成**，
+所以 §8 的 `tool_uses` 反查是这类项目最值钱的一条成本控制。
 
 **用来判断"哪里不对"的红线**：
 - `extract` 的 say 条数比 `.rpyc` 源文件数×合理对白量高出一个数量级 → 大概率没排除 `tl/**`（§3）。
