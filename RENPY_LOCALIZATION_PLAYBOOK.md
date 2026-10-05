@@ -19,6 +19,9 @@
 5. **翻译要贴合游戏氛围**：先判断题材与语域再下笔。旁白用书面腔，角色之间语域必须拉开（谁痞、谁端着、谁先绷不住），内心独白保持独白的视觉与语气。露骨内容按原文语气直译，不回避不美化——这是用户自有游戏的虚构文本本地化，回避会造成剧情断裂。
 6. **一切改动纯新增、可一键撤销**，原文件零修改（见 §11）。
 7. 做完先自检再交付（§9 + §12 的 qa/align），**不要**在没跑过游戏的情况下说"做好了"。
+9. **玩家要的是"玩的时候不用记攻略"**：如果用户提过他想走某条剧情线（女S男M、某角色路线、某结局），
+   就把那条线的**决定性选项在游戏里直接标出来**（§16），而不是给他一份文字攻略让他对着看。
+   标记是覆盖层里的字符串替换，纯新增、可回滚，且**默认只加前缀不改选项文字**（不违反"菜单不译"）。
 8. **对白框的几何属于游戏设计，不许为了容纳双语去动它**（不高、不移、不改 `ysize`/`ypos`）。
    塞不下时的唯一手段是**降字号，最多降 1~2 号**（中英共用一个 `say_dialogue` 样式，一个数就同时改两行）；
    降完还塞不下就**让它溢出**——中文行排在上面，所以"中文一定看得见"这个底线天然成立（§5.1）。
@@ -514,6 +517,9 @@ init -1000 python:
 | `tools/make_selftest.py` + `tools/selftest_template.rpy` | §9.0 的现成 harness。探针语句从真源 JSON 生成；`mix` 模式按排版风险各取一条（最长行 / 带 `{size=26}` 补述 / 带名字框的台词 / 纯拟声单行）。跑完自动写 `selftest_report.txt`（`preferences.language`、`known_languages`、`font_name_map`、每条 `translate_string` 命中与否）和 12 张截图 |
 | `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
 | `tools/uninstall.py` | 一键回滚（按 manifest + 扫 `tl/<lang>/` 双保险）。**扫描要收目录下全部文件**，不能只挑 `.rpy`/`.rpyc`——`--cjk-font` 复制进去的字体也在 `tl/<lang>/font/` 里，漏了就不是"零残留" | — |
+| `tools/scan_routes.py` | **路线标记**：解析 `menu:` 与 `screen choiceN()`，算出每个选项实际改哪个统计量/跳哪个 label，套 `route_rules.json` 判定，出"该标的选项串"+ 一份"规则判不出来、要人确认"的清单。**判不出来一律不猜** | `game/**.rpy` + rules → `route_marks.json` + `route_review.txt` |
+| `tools/font_cmap.py` | 纯 stdlib 读 TTF/OTF 的 `cmap`，回答"这个字形到底有没有"。任何要上屏的非拉丁字符（符号/emoji/生僻字）先过它 | 字体路径 + 文本 → 缺字列表，非零退出码 |
+| `localization/route_rules.json` | 某款游戏的路线规则实例（含剧情走向，**属衍生内容不外传**；公开仓放 `route_rules.template.json`） | 人写 + `route_review.txt` 回填 |
 | `localization/glossary.md` | 人名表（保持原文，不音译）+ 硬约束 + 风格基线，直接喂给翻译 agent | — |
 | `localization/names_manual.tsv` | 去音译的人工补充映射，含 `前缀~禁止后接字` 语法 | — |
 
@@ -546,6 +552,9 @@ init -1000 python:
 18. **模式 B 且 `game/tl/<lang>/*.rpy` 是明文** → 用 `tl_reuse.py` 按内容配对官方译文（§3.6）；收割正则要能吃 `# mc "old"` / `mc "new"` 的说话人前缀形态，未知转义要连反斜杠一起保留，配对失败先试折叠空白。
 19. **布局自检必须走真 `renpy.say(who, tr, interact=False)`**（在真实游戏上下文里），`always_shown` + `use say(...)` 的自建 screen 是假故障制造机（§9.0）。
 20. **`denames.py` 报 0 candidates ≠ 官方没音译人名**。再 `grep '·'` 一次，并用 `align_check --only-names` 的"英文有名字、中文没有"清单逐行确认（§3.5 第 6/7 条）。
+22. **要上屏的每个非拉丁字形都先过 `tools/font_cmap.py`**。`⚑`(U+2691) 和 `🚩`(U+1F6A9) 在思源黑体里**都没有**，实测就是豆腐块；`★ ☆ ⚠ ▲ ● ◆ → 【】` 有。
+23. **标记层必须和译文层共用一个写者**（`build_tl.py --marks`），否则同一个 `old` 可能被两边各写一次 → `StringTranslator.add` 直接 raise、游戏启动即崩。跨 kind 撞的串（`Yes`/`No` 同时是 say 和 menu）要在生成期挡掉。
+24. 路线标记**判不出来就进 review 清单，不许猜**。极性反转是常态（本游戏 Alex：跟她争=涨 `alexDom` 才进她被绑的那场），只靠"蓝色=温柔"推不出来。
 21. **改对白框之前先读 `screen say` 用的是哪个样式名**：`style "window"` 的游戏对 `say_window` 的覆盖完全无感；背景写在 screen 里时样式层也改不到它（§5.1）。
 
 ---
@@ -591,6 +600,9 @@ python tools/uninstall.py --dry-run           # 列出的必须全在你新增�
 | `--lang` | 语言代码。若游戏自带 `chinese`，**必须另起一个名**（`zh`），否则你的 `strings:` 会被官方 id 块压掉（§3.5） |
 | `--kinds` | 只译对白用 `say`；要连选择支一起译用 `say,menu`；`uwrap`（HUD/图鉴/系统文案）默认**不要**开，见 §5 |
 | `build_tl.py --picker-name/--flag` | 语言菜单里显示的名字、persistent 开关变量名 |
+| `tools/scan_routes.py` | **路线标记**：解析 `menu:` 与 `screen choiceN()`，算出每个选项实际改哪个统计量/跳哪个 label，套 `route_rules.json` 判定，出"该标的选项串"+ 一份"规则判不出来、要人确认"的清单。**判不出来一律不猜** | `game/**.rpy` + rules → `route_marks.json` + `route_review.txt` |
+| `tools/font_cmap.py` | 纯 stdlib 读 TTF/OTF 的 `cmap`，回答"这个字形到底有没有"。任何要上屏的非拉丁字符（符号/emoji/生僻字）先过它 | 字体路径 + 文本 → 缺字列表，非零退出码 |
+| `localization/route_rules.json` | 某款游戏的路线规则实例（含剧情走向，**属衍生内容不外传**；公开仓放 `route_rules.template.json`） | 人写 + `route_review.txt` 回填 |
 | `localization/glossary.md` | 每个游戏的术语、人名表、语域基线——这是唯一需要重写的文本 |
 | `localization/names_manual.tsv` | 每个游戏的音译变体，第一次跑完候选表后人工填一次 |
 
@@ -624,8 +636,13 @@ python tools/repair_json.py --in localization/out_11.json --group localization/g
 python tools/apply_trans.py          # 标签/插值/换行守恒预检；后到的 out_9x_*.json 用于覆盖修正
 python tools/align_check.py --only-names --names "$(python -c "...")"   # 硬失败必须 0
 
+# 2b) 可选：路线标记（玩家要求"把某条线的选项直接标出来"时才做，见 §16）
+python tools/scan_routes.py --rules localization/route_rules.json      # 先看 route_review.txt
+python tools/scan_routes.py --rules ... --merge-json                   # 把抽取器没见过的 screen 选项补进真源 JSON
+#   把 review 里 INVERTED-POLARITY / UNRESOLVED-CHAIN 的条目人工确认后回填 route_rules.json
+
 # 3) 生成 + 校验
-python tools/build_tl.py --lang zh --kinds say --layout zh-first \
+python tools/build_tl.py --lang zh --kinds say --layout zh-first     --marks localization/route_marks.json \
     --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf \
     --text-size <比 gui.text_size 小 1~2 档的值> --flag <项目缩写>_bi_off --clean
 #   游戏没自带 CJK 字体时把 --font-ref 换成 --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf"（复制一份进 tl/<lang>/font/）
@@ -696,3 +713,105 @@ token：正常组 **30-60 万/组**，3 个跑偏组 260 / 370 / 630 万，全�
 - `qa.py` 报 `dup` → 生成器去重跨 kind 没做好，游戏会启动即崩（§4）。
 - `qa.py` 报 `ghost` → `old` 和源串不逐字节相等，多半是转义顺序或 `\n` 处理错（§4），这类条目会静默不生效。
 - 截图满屏豆腐块 → 字体三层挂载缺一层，尤其 `translate <lang> style`（§6.1）。
+
+
+---
+
+## 16. 路线标记：把玩家想走的那条线的选项，在游戏里直接标出来
+
+> 需求来源：用户玩这些游戏时不想记攻略，他要的是"看到这个标记就点它"。
+
+### 16.1 为什么用覆盖层做，而不是给玩家写一份文字攻略
+
+标记本身就是一次**字符串替换**：`old = 选项原文`，`new = 徽章 + 选项原文`。所以它天然满足本手册的全部约束——
+纯新增、走 `translate <lang> strings:`、可 `uninstall.py` 一键删、不改任何原文件、不动任何几何（§5.2）。
+**选项文字保持英文原样**，只在前面加一段带 `{font=}` 的徽章，所以不违反"菜单不译"的口径。
+
+### 16.2 判定从哪来：读脚本，不读译文
+
+`tools/scan_routes.py` 要解析两套**完全不同**的语法，这是最容易写错的地方：
+
+1. **`menu:` 语句**：`"{color=#00b4d8}Let her win (Femdom)":` 开一项，它的 body 是缩进更深的后续行，
+   直到下一个同缩进项或 dedent。从 body 里取 `$ var += N`、`jump/call LABEL`、`Jump("LABEL")`；
+   body 里出现过 `if/elif` 的降一档置信度。
+   注意 `{color=...}` **不带闭合**也是合法选项文字，`en` 必须逐字节照抄，否则和真源 JSON 对不上（`qa.py` 报 ghost）。
+2. **`screen choiceN()`**（很多发行版把关键分岔做成图片按钮屏）：
+   `if _preferences.language is None:` 那一支是**把英文烧在图里**的 `imagebutton auto "choice9_button1_%s"`，整支丢掉；
+   只有 `else:` 支是 `fixed:` → `imagebutton`(+`action ... Jump("X")`) + `text _("...")` + `color "#..."`。
+   **按 `fixed:` 容器分组配对**，不能按行序（有的屏是 `text` 在前、`imagebutton` 在后）。
+   覆盖层把语言设成 `zh` 之后玩家看到的正是 else 支，所以这一支才是可标记的。
+   正则坑：定义行是 `screen choice1():`，带括号，`^screen\s+(\w+)\s*:` 匹配不到。
+
+**抽取器会漏掉第 2 类**：`rpy_extract.py` 只收 `label` 上下文里的 say 语句，`text _("...")` 既不被 `SAY_RE` 认（`_(` 挡在引号前），也不在 label 下。
+所以 `scan_routes.py --merge-json` 负责把这些串以 `kind:"menu"`、`zh:""` 追加进真源 JSON
+（`zh` 留空 → 译文层不输出它们；但 `qa.py` 的 ghost 检查要求 `old` 必须在 JSON 里，所以**必须先补再建**）。
+追加时**只能 append 新 id，绝不重跑抽取**——重跑会重排顺序 id，让已回收的译文分片全部错位（§8 的记账方式就是按 id）。
+
+### 16.3 规则文件：能自动推的自动推，推不出来的一律进 review
+
+`route_rules.json` + `classify()` 的优先级（顺序本身就是判据，写错顺序就判反）：
+
+1. **扣分检测**：body 里有 `$ *Favor -= N` / `*publicOpinion -= N` → `favor_loss`。
+2. **声明的极性反转优先于轴标签**：`characters.alex.she_leads_var = "alexDom"` → 涨 alexDom 标"她主导"。
+   这条必须排在轴标签**之前**，否则 `Dominance` 轴会先把 alexDom 判成"你主导"，正好判反。
+3. **轴标签**：`axis_ui_labels` 用正则去**读游戏自己的关系菜单文本**。例：
+   `_(" [mc]'s Submission: [alexLove]")` → `alexLove` 是服从轴 → 涨它标"她主导"；
+   `_("Dominance: [naomiDom]")` → 标"你主导"。
+   这是跨项目最值钱的一条：**游戏往往会亲口告诉你这个数值叫什么**，不必猜变量名。
+   本项目就是靠它自动发现"只有 Alex / Jessica / Naomi 三人把 Love 轴改名叫 Submission"。
+4. **love 轴承载女S变体的角色**（`love_is_she_leads`）：本项目 hana / emma——她们的女S内容不在独立数值轴上，
+   而在 `if xLove >= xDom and femdomDisabled == 0` 那个分支里（`scenes.rpy:7828`、`script.rpy:4905`）。
+5. **选项文字自报**（`(Femdom)`）、**跳转 label 词表**（`femdom`/`submi` 必须**先于** `dom`/`dominate` 判，
+   否则 `femdom` 被 `dom` 吃掉）、**flag 桥接**（`wonAgainstAlex = 1` → 若干行后 `day14specialcondition` → `day14AlexFemdom`）。
+
+两条实测必须加的护栏：
+
+- **`$ xDom = 99` 这类是画廊/开发跳板，不是玩家选项**：按 `abs(delta) >= 10` 剔除，否则会标出一堆假分岔（本项目 20 条）。
+- **颜色不能单独当判据**。本游戏蓝=涨 Love、粉=涨 Domination 全局成立（187 个带色选项验证），
+  但"粉对 Alex 反而是女S"，所以颜色推不出路线，只能作低置信度线索进 review。
+
+`route_review.txt` 逐行输出 `mark | 置信度 | file:line | 选项 | 证据`，并把
+`INVERTED-POLARITY`、`UNRESOLVED-CHAIN`（flag 桥接超过一跳）、`BROAD-MARK`（撞串站点数 >3）单列出来给人回填。
+**判不出来的东西工具一律不许猜**——猜错的标记比没有标记更糟，因为玩家会照着点。
+
+### 16.4 撞串与 `old` 唯一性（这里处理不好会直接崩游戏）
+
+`strings:` 表按**英文内容全局匹配**，于是：
+
+- 一个串在 11 处当选项（`Yes`），标一次 11 处全变。用户口径是"宁误不漏"，所以默认全标，但站点数必须写进 review。
+- **同一个 `old` 在 `tl/<lang>/**` 出现两次，`StringTranslator.add()` 直接 raise，启动即崩**（§4）。
+  所以标记层和译文层**必须由同一个写者输出**（`build_tl.py --marks`，共用 `picked[en]` 去重），
+  并在生成时跳过"已被 say 层输出过"的串——本项目有 4 条 `Yes` / `No` / `Keep going` / `You should go` 同时是 say 和 menu。
+  将来若用户改口径要译选项（`--kinds say,menu`），徽章和译文要在**同一条 `new`** 里合成，不能各写一条。
+
+### 16.5 徽章字形必须先过 cmap 闸门
+
+**本项目返工最多的一处**：用户选的 `🚩`(U+1F6A9) 和备选 `⚑`(U+2691) 在游戏自带的
+`NotoSansSC-VariableFont_wght.ttf` 里**都没有**；而选项实际用的 UI 字体 `LEMONMILK` 连 `⚠` 和中文都没有。
+Ren'Py 没有逐字回退（§6.1），所以直接写就是豆腐块——第一版截图实测就是这样翻车的。
+可用的有 `★ ☆ ⚠ ▲ △ ● ○ ◆ → 【】 「」`，最终定 `★她主导` / `☆你主导` / `⚠掉好感`，
+并且**整段徽章包 `{font=}`**（不包的话连"她主导"三个字都是豆腐）。
+
+`tools/font_cmap.py` 是纯 stdlib 的 `cmap` 读取器，两个坑单独记：
+
+- fmt4 中 `idRangeOffset == 0` 时**delta 的结果是 glyph id，不是码位**，而 glyph id 0 = `.notdef`。
+  把 glyph id 当码位塞进集合，会把手旗符号报成"有"——我第一版就是这么误判、然后被截图打脸的。
+- fmt12 的三元组是 `(startCode, endCode, startGlyphID)`，**只有前两个是码位**；
+  拿 `startGlyphID` 去展开区间同样造成大面积假"有"。
+- 变量字体要优先挑 `(3,10)` 的 fmt12 子表，其次 `(3,1)` fmt4；只读第一个子表就下结论不安全。
+
+`qa.py --marks ... --badge-font <ttf>` 把它变成硬门禁：徽章前缀每个字符必须在字体里存在；
+每条标记的 `new` 必须同时含徽章、含原 `old`、含 `{font=`（缺哪个分别报 `badge-lost` / `badge-ate-en` / `glyph`）。
+
+### 16.6 标记的自检（不靠手点）
+
+`renpy.display_menu([(caption, None), ...], interact=False)` 能渲染**真实的选择屏**且不等点击
+（`renpy/exports/menuexports.py:202` 的 `interact` 参数），配 `renpy.pause(0.6)` + `renpy.screenshot()` 就是确定性截图。
+选项串一律从 `route_marks.json` 程序化取（§9.0 的教训）。断言三件事：
+`translate_string(en)` 含徽章、含原 `en`、含 `{font=`。临时 harness 用完连 `.rpyc` 一起删。
+
+### 16.7 发布边界
+
+`route_rules.json` 的**实例**含剧透（label 名、变量名、`why` 字段逐字引用游戏文本），算衍生内容：
+公开仓只放 `localization/route_rules.template.json`（字段 + `$doc` + 空值），
+实例与 `route_marks.json` / `route_review.txt` 一律 gitignore，和 `en-zh.json` 同级处理。

@@ -58,9 +58,26 @@ python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文�
 | `dump_groups.py` | 把未译条目按序切成大组，供批量派工 |
 | `apply_trans.py` | 合并译文分片，做标签 / 插值 / 换行守恒预检，拒绝项进 `rejected/` |
 | `align_check.py` | 对齐与漏译审计（标签守恒抓不到"错位一行"，这里补上）。硬失败只认**游戏自己的角色名**（默认从 `speakers.json` 读，也可 `--names` / `--only-names`），其余大小写猜测降级为告警；网址 / 邮箱不算漏译；刻意保留的外语与术语写进 `localization/leak_allow.txt`，报告里回显命中了哪些 |
-| `build_tl.py` | 生成 `tl/<lang>/**.rpy` + 语言 / 字体 / 断行 / 对白框装配文件。`--text-size` 是双语塞不下时的唯一推荐手段（§5.2）；`--font-ref` 引用游戏已自带的字体（零新增文件）；`--window-style` / `--window-ypos` / `--textbox-height` 只在用户明确要求改几何时用，`--window-bg none` 对应 `style window` 本来就 `background None` 的游戏 |
-| `qa.py` | BOM、`old` 唯一性、逐字节等于源串、双语对完整性、覆盖率 |
+| `build_tl.py` | 生成 `tl/<lang>/**.rpy` + 语言 / 字体 / 断行 / 对白框装配文件。`--text-size` 是双语塞不下时的唯一推荐手段（§5.2）；`--font-ref` 引用游戏已自带的字体（零新增文件）；`--window-style` / `--window-ypos` / `--textbox-height` 只在用户明确要求改几何时用，`--window-bg none` 对应 `style window` 本来就 `background None` 的游戏；`--marks` 输出路线徽章层（§16） |
+| `qa.py` | BOM、`old` 唯一性、逐字节等于源串、双语对完整性、覆盖率；`--marks --badge-font` 时另查徽章是否被吃掉、徽章字形是否真的存在 |
+| `scan_routes.py` | **路线标记**：读脚本算出每个选项实际改哪个数值 / 跳哪个 label，套 `route_rules.json` 判定，输出该标的选项串 + 一份"判不出来、要人确认"的清单。判不出来一律不猜 |
+| `font_cmap.py` | 纯标准库读 TTF/OTF 的 `cmap`，回答"这个字形到底有没有"。任何非拉丁字符上屏前先过它（`⚑` `🚩` 在思源黑体里都没有，实测豆腐块） |
 | `uninstall.py` | 一键回滚，扫 `tl/<lang>/` 下全部文件（含复制进去的字体） |
+
+## 路线标记（玩的时候不用记攻略）
+
+如果玩家要的某条剧情线（女S男M、某角色路线、某结局）藏在几百个选项里，可以把**决定性选项打上徽章**：
+`localization/route_rules.json` 声明规则 → `tools/scan_routes.py` 读脚本判定 →
+`tools/build_tl.py --marks` 在覆盖层里输出 `game/tl/zh/90choice_mark.rpy`，
+游戏里就显示成 `★她主导 Let her win`、`☆你主导 Hold it` 这样。
+
+- 本质是一次 `strings:` 替换（`new = 徽章 + 原文`），**选项文字不译**、几何不动、纯新增可回滚。
+- 最值钱的一条判据是**读游戏自己的状态界面**：本项目 `_(" [mc]'s Submission: [alexLove]")`
+  直接告诉了我们哪个数值是"男主服从度"，不用猜变量名。
+- 判不出来的（尤其**极性反转**：某角色越跟她争她越占上风）一律进 `route_review.txt` 等人回填，工具不猜。
+- 规则文件**实例**含剧透、逐字引用游戏文本 → 属衍生内容，不提交；本仓只放
+  [`localization/route_rules.template.json`](localization/route_rules.template.json)。
+- 详见手册 §16。
 
 ## 注意
 

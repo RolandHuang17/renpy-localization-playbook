@@ -18,6 +18,8 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 TAGS = re.compile(r"\{[^{}]*\}")
 INTERP = re.compile(r"\[[^\[\]]*\]")
 CJK = re.compile(r"[\u4e00-\u9fff]")
@@ -83,6 +85,8 @@ def main():
     ap.add_argument("--tl", default="game/tl/zh")
     ap.add_argument("--lang", default="zh")
     ap.add_argument("--report", default="localization/qa_report.txt")
+    ap.add_argument("--marks", default=None, help="route_marks.json: verify the badges survived and their glyphs exist")
+    ap.add_argument("--badge-font", default=None, help="ttf carrying the badge glyphs, e.g. game/fonts/NotoSansSC-VariableFont_wght.ttf")
     args = ap.parse_args()
 
     recs = json.load(open(args.json, encoding="utf-8"))
@@ -101,11 +105,13 @@ def main():
     pairs = 0
     mono = 0
     seen_old = set()
+    pairs_by_old = {}
     for kind, where, payload in parse_tl(args.tl, args.lang):
         if kind == "pair":
             pairs += 1
             old, new = payload
             seen_old.add(old)
+            pairs_by_old[old] = new
             if old in mono_ok:
                 mono += 1
             elif not CJK.search(new):
@@ -122,6 +128,28 @@ def main():
     if ghost:
         for g in ghost[:10]:
             note("ghost", args.tl, g[:70])
+
+    if args.marks and os.path.isfile(args.marks):
+        spec = json.load(open(args.marks, encoding="utf-8"))
+        prefixes = set()
+        for en, info in spec["marks"].items():
+            if info.get("blocked"):
+                continue
+            prefixes.add(info["prefix"])
+            new = pairs_by_old.get(en)
+            if new is None:
+                note("badge-missing", args.marks, en[:60])
+            elif info["prefix"] not in new:
+                note("badge-lost", args.marks, en[:60])
+            elif en not in new:
+                note("badge-ate-en", args.marks, en[:60])
+        if prefixes and args.badge_font:
+            import font_cmap
+            bad = sorted({c for pre in prefixes for c in font_cmap.missing(args.badge_font, pre)})
+            if bad:
+                for c in bad:
+                    note("glyph", args.badge_font, "U+%04X %s in badge %r" % (ord(c), c, "".join(sorted(prefixes))))
+        lines.append("route badges            : %d checked" % sum(1 for e, i in spec["marks"].items() if not i.get("blocked")))
 
     covered = sum(1 for r in say if r.get("zh"))
     missing = [r for r in say if not r.get("zh")]

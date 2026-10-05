@@ -6,3 +6,4 @@ localization/*
 game/
 *.rpa
 *.rpyc
+!localization/route_rules.template.json

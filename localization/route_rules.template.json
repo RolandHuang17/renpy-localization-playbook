@@ -1,0 +1,40 @@
+{
+ "$doc": "路线标记规则模板。复制成 localization/route_rules.json 后按项目填写；填完先跑 tools/scan_routes.py 看 route_review.txt，把 INVERTED-POLARITY / UNRESOLVED-CHAIN 的条目人工确认后回填。规则文件实例含剧透，属衍生内容，不要提交回本仓库。",
+ "marks": {
+  "$doc": "徽章文本。每个字符都必须存在于 marks_font 指向的字体里，qa.py --badge-font 会拦。实测思源黑体有 ★☆⚠▲△●○◆→【】「」，没有 ⚑(U+2691) 和任何 emoji(U+1F6A9)。",
+  "she_leads": "★她主导",
+  "you_lead": "☆你主导",
+  "favor_loss": "⚠掉好感"
+ },
+ "marks_font": "fonts/NotoSansSC-VariableFont_wght.ttf",
+ "$marks_font_doc": "承载徽章字形的字体。游戏自带 CJK 字体时填它的游戏内路径（零新增文件）；没有就先按 §6 解决字体。",
+ "axis_ui_labels": {
+  "$doc": "用正则读游戏自己的菜单/状态界面文本，反推哪个变量是什么轴。这是跨项目最值钱的一条：游戏常常亲口告诉你数值叫什么。re 匹配的是 `_(\"LABEL: [var]\")` 里的 LABEL 部分。",
+  "patterns": [
+   { "re": "^\\[mc\\]'s Submission$", "mark": "she_leads" },
+   { "re": "^Dominance$", "mark": "you_lead" }
+  ]
+ },
+ "characters": {
+  "$doc": "极性反转声明。某些角色『跟她争』才会进她被压/被绑的剧情，此时 Dominance 轴要判成 she_leads。这条优先级高于 axis_ui_labels，必须写在前面。",
+  "<char>": { "she_leads_var": "<varName>", "why": "<判据出处，例：scenes.rpy:13155 的 if alexDom >= alexLove: jump day14AlexFemdom>" }
+ },
+ "love_is_she_leads": ["<charA>", "<charB>"],
+ "$love_is_she_leads_doc": "这些角色的女S内容不在独立数值轴上，而在 Love 分支的场景变体里（常见形态：`if xLove >= xDom and <femdomFlag> == 0`）。填之前先去源码确认那个分支里确实是她占上风。",
+ "text_sense": { "she_leads": ["(Femdom)"], "you_lead": [] },
+ "$text_sense_doc": "选项文字自报家门，最高信噪比的一条。注意和 label 词表一样：先判 she_leads 再判 you_lead。",
+ "label_sense": { "she_leads": ["femdom", "submi", "bound"], "you_lead": ["dominate", "dom"] },
+ "$label_sense_doc": "jump/call 目标 label 名的词表。顺序敏感：femdom 必须排在 dom 前面，否则被 dom 先吃掉。",
+ "flag_sense": [
+  { "flag": "<flagName>", "value": 1, "mark": "she_leads", "why": "<这个 flag 后来在哪个 label 被读，导致什么场景>" }
+ ],
+ "$flag_sense_doc": "选项 body 里只 `$ flag = 1`、真正跳转在 menu 之后的间接链。工具只做一跳 flag→reader 桥接，超过的会在 route_review.txt 里报 UNRESOLVED-CHAIN，需要人写进这里或 manual.force。",
+ "penalty_re": ["[Ff]avor$", "publicOpinion$"],
+ "$penalty_re_doc": "body 里出现 `$ <匹配变量> -= N` 判为 favor_loss（选了会掉好感/掉声望）。",
+ "dev_delta_floor": 10,
+ "$dev_delta_floor_doc": "abs(delta) >= 该值的一律不当玩家选项——这些是画廊解锁/开发跳板（`$ xDom = 99`）。",
+ "manual": {
+  "force": [ { "en": "<选项原文，逐字节>", "mark": "she_leads", "why": "<依据>" } ],
+  "deny": [ { "en": "<选项原文>", "why": "<为什么不标：撞串站点太多 / 判据不成立>" } ]
+ }
+}
