@@ -23,7 +23,13 @@ import json
 import re
 import sys
 
+# Windows consoles default to GBK and the report is CJK: print() would crash.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 TAGS = re.compile(r"\{[^{}]*\}")
+INTERP = re.compile(r"\[[^\[\]]*\]")
 CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
 LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
 LOWERCASE_LEAK = re.compile(r"(?<![A-Za-z])[a-z]{4,}(?![A-Za-z])")
@@ -71,12 +77,19 @@ def has(text, name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", default="localization/en-zh.json")
-    ap.add_argument("--names", default="", help="extra names to enforce")
+    ap.add_argument("--names", default="",
+                    help="known display names (comma or space separated). With "
+                         "--only-names these REPLACE the auto-detected set.")
+    ap.add_argument("--only-names", action="store_true",
+                    help="enforce exactly --names: auto-detection also picks up "
+                         "capitalised SFX (*Giggle*) and game terms (Pregnancy), "
+                         "which are terminology choices, not misalignment")
     ap.add_argument("--report", default="localization/align_report.txt")
     args = ap.parse_args()
 
     recs = json.load(open(args.json, encoding="utf-8"))
-    names = proper_nouns(recs) | {n for n in args.names.split() if n}
+    known = {n for n in re.split(r"[,\s]+", args.names) if n}
+    names = known if args.only_names else (proper_nouns(recs) | known)
     hard, warn = [], []
     for r in recs:
         en, zh = r["en"], r.get("zh") or ""
@@ -85,11 +98,12 @@ def main():
         for n in sorted(names):
             in_en = has(en, n)
             if in_en and not has(zh, n):
-                hard.append(("MISSING-NAME", r["id"], r["line"], n, en[:60], zh[:60]))
+                row = ("MISSING-NAME", r["id"], r["line"], n, en[:60], zh[:60])
+                (hard if n in known else warn).append(row)
             if has(zh, n) and not in_en:
                 warn.append(("EXTRA-NAME", r["id"], r["line"], n, en[:60], zh[:60]))
-        # {tags} are markup, not prose - never a translation leak
-        for leak in LOWERCASE_LEAK.findall(TAGS.sub(" ", zh)):
+        # {tags} and [interpolations] are markup/code identifiers, not prose
+        for leak in LOWERCASE_LEAK.findall(INTERP.sub(" ", TAGS.sub(" ", zh))):
             hard.append(("LEAK", r["id"], r["line"], leak, en[:60], zh[:60]))
 
     lines = ["enforced names: %s" % ", ".join(sorted(names))]

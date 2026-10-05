@@ -2,9 +2,9 @@
 
 > 面向执行者（人或编码 agent）的可复制流程。适用于 **Ren'Py 官方发行的 PC/zip 版游戏**（含打包脚本、无源码）。
 > **默认需求全在 §0.5**——只丢这份 md 时那 7 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
-> 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支。
-> 引擎结论在 Ren'Py **8.5.2 / 8.4.2 / 8.3.7** 上都验证过；标注版本相关的条目换版本需复验。
-> 配套工具集（10 个纯标准库 Python 文件，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）与 The Tutor（散文本型）两个项目的 `tools/` 下。
+> 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--window-style/--window-ypos` 与 §9.0 的探针方法学。
+> 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7** 上都验证过；标注版本相关的条目换版本需复验。
+> 配套工具集（11 个纯标准库 Python 文件，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）与 By Justice or Mercy（散文本 + 自带明文官方译文型）三个项目的 `tools/` 下。
 
 ---
 
@@ -27,6 +27,7 @@
 | 观察 | 结论 |
 | --- | --- |
 | 有 `game/saves/`、`game/.../` 且能读到 `.rpy` 明文 | **模式 B**：用 `tools/rpy_extract.py`（§14 的 B 分支）。不需要解归档，但**仍然走 `tl/` 覆盖层**，不要直接改源码——改了就没法一键撤销 |
+| 模式 B 且 `game/tl/<lang>/*.rpy` 是**明文**（不是归档里的 `.rpyc`） | **模式 B + 自带官方译文**：`rpy_extract.py` 抽源文，再用 `tools/tl_reuse.py` 按内容配对官方译文（§3.6）。这是 By Justice or Mercy v25 的形态，18,608 条里 18,544 条直接复用，缺口只剩 64 条 |
 | `game/` 下只有 `*.rpa` + `tl/None/`，无散落 `.rpy` | **本手册的主场景**：脚本被编译进归档，必须走提取 + `tl/` 覆盖层 |
 | 归档索引里出现 `tl/<语言名>/**.rpyc` | **先别翻译**：游戏自带官方译文，按 §3.5 复用，通常能省掉 90%+ 的翻译量 |
 | 只有 `.rpa` 且是加密/魔改格式 | 先确认 RPA 版本头，见 §2 |
@@ -143,8 +144,52 @@ def find_class(module, name):
 3. 但**光靠判别式会漏**：需要一张"音译用字表"（尔娅莎琳茜丝蒂塔尼…）做二次闸门；反过来该表也会漏 `鲁比/索恩/夏子/光环` 这类不含闸门字的译法 → **必须再出一份不过滤的候选表给人看**，人工补 `names_manual.tsv`。
 4. 应用时：**最长优先**（`哈丁塔` 要先于 `哈丁`），并自动补**所有格变体**（`鲁比斯` = Ruby's）；一个名字常有多个变体（Eliana 出现 伊莱安娜/埃莉安娜/伊莱亚娜），漏一个就会留下 `Eliana 亚娜` 这种残渣。
 5. 收尾必须**回归验证**：替换后全表扫描"名字紧邻 CJK"的行，残渣数应为 0；本项目 1,758 行被改写，最终残留 0。
+6. **`0 candidates matched` 不等于"官方没音译人名"**（本项目第一遍就是这么误判的）。自动候选要求"句中大写 + 出现 ≥25 次 + 音译闸门字"，
+   而发行版官方译文常常是**部分音译**：By Justice or Mercy 里主要角色保持拉丁原样（`Ava`、`Leah` 直接出现在中文里），
+   但一次性人名全被音译——`Clara Vogel→克拉拉·沃格尔`、`Nakamura→中村`、`Smith→史密斯`、`Emma→艾玛`、`Mia→米娅`、`Tiffany→蒂芙尼`。
+7. 抓这类残留的**可靠路径不是 denames 的自动探测**，而是：
+   `align_check.py --only-names --names <speakers.json 的显示名>` 列出"英文有名字、中文没有"的行 → 逐行看中文里占住名字位置的是什么 CJK →
+   再用一次全表计数确认该 CJK 只出现在人名位置（`陈`、`李` 这类单字姓氏会被 `陈腐` 之类普通词污染，必须排除在批量替换之外、单独按行改）→
+   写进 `names_manual.tsv` → `denames.py --apply`（不带 `--seed`，只让手工表生效）。
+   `denames.py --seed` 已加进来（跳过频率计数和音译闸门字），但实测**放宽闸门后判别式会抓出同句共现词当译名**
+   （`Harper→项提议加上几`、`Man→天啊`），所以它只适合出候选，不适合直接 `--apply`。
+   顺带：`·`（间隔号）是西方人名音译的强信号，一行 `grep '·'` 就能捞出全部残留（本项目 3 行）。
+
 
 ---
+
+## 3.6 模式 B 的官方译文复用：`tools/tl_reuse.py`（明文 `translate <lang>` 块）
+
+归档型项目按 identifier 连（§3.5）；散文本项目的官方译文通常是 `renpy translate` 命令生成的**明文 `.rpy`**，
+形态是"id 块 + 上面一行注释放着原文"，于是**按内容配对即可，identifier 和 md5 完全不用碰**：
+
+```rpy
+# game/script.rpy:6
+translate chinese start_9f50295d:
+
+    # "Would you like to see the tutorial?"
+    "你想看新手教程吗？"
+```
+
+三条实测要点，少一条就会把复用率从 99.6% 掉到 12%（本项目第一版就踩全了）：
+
+1. **绝大多数块带说话人变量前缀**：`# mc "Yeah..."` / `mc "嗯……"`。
+   只匹配 `# "..."` + `"..."` 的话，23,673 个块里只能收割到 2,746 个。正则要给引号前加可选的 `[A-Za-z_][\w.]*\s+`。
+2. **未知转义必须连反斜杠一起保留**：Python 里 `"\%"` 求值成两个字符 `\%`，所以源文里的 `100\%` 在译文注释里也是 `100\%`。
+   自定义 unescape 若把未知转义写成"只留后一个字符"，`100\%` 变成 `100%`，这类串**全部静默失配**。
+   判据：跑完看 `still untranslated`，如果剩下的成簇地都带同一个转义，就是解码不一致而不是"官方没译"。
+3. **官方译文往往比源码旧一版**（本项目 tl 头写着 2026-05-25，游戏是 8 月的 v25），差异经常只是空白：
+   `what about you?` vs `what  about you?`。所以配对要两级：精确 → **折叠空白**（`" ".join(s.split())`）再试一次。
+   本项目第二级又捞回 12 条。
+
+**顺带**：如果 `denames.py` 报 `0 candidates matched`，说明官方译者根本没音译人名（本项目即是，`Ava`/`Leah` 原样出现在中文里），
+去音译这一步可以整段跳过——别为了"走完流程"硬造映射。
+
+```bash
+python tools/rpy_extract.py --game game --out localization/en-zh.json
+python tools/tl_reuse.py --tl game/tl/chinese            # 先看报告
+python tools/tl_reuse.py --tl game/tl/chinese --apply     # 再写回真源 JSON
+```
 
 ## 4. 翻译机制：只用 `translate <lang> strings:`
 
@@ -219,6 +264,20 @@ The Tutor 实测：最长 7 行（中 3 + 英 4）= 267px，加 `ypos 75` = 342 
 - 背景必须换成 `Frame`：原图（1920×277）在更高的窗口里是**底对齐绘制**的，顶部会露出一条没有背景的缝隙，前几行字压在立绘上。`Frame` 的左右边框要**够宽**以保住美术两侧的渐隐（这里 430×2 < 1920），上下边框给小值（20）让中间拉伸——竖向渐变被拉长几乎看不出来。
 - 构建参数：`build_tl.py --textbox-height <算出来的固定高度> --window-bg <底图路径> --window-borders <左右,上下>` 生成上面这块。
 
+**但先读 `screen say` 再决定改哪个样式（By Justice or Mercy v25 踩到的修正）**：模板的 `window:` 走 `say_window`，
+可很多发行版把窗口写死成 `style "window"` / `"window1"`（按 `persistent.color` 二选一）。这种情况下面这块
+`translate <lang> style say_window` **完全无效**。更麻烦的是背景若写在 screen 里
+（`background Image(im.Alpha("gui/textbox.png", l_alpha))`），样式层的 `background Frame(...)` 也压不过它——
+screen 属性优先级高于样式，于是"增高 + 换 Frame"这条主路整个走不通。两个新开关：
+
+- `--window-style window,window1`：把样式块发到游戏真正使用的那个样式名上（默认 `say_window`，别照抄）。
+- `--window-ypos <绝对值>`：**上移而不是增高**，美术零变形、也不需要换背景。
+  本项目实测：`style window` 是 `xpos 130 / ypos 835 / ysize 278`，屏幕 1080 高，正文从 `ypos + dialogue_ypos = 900` 起排，
+  行距实测 58px → **只有 3 行可见**，双语长句必然掉出屏幕底边（原版单英文的长句本来就已经掉出去了）。
+  `ypos` 提到 725 后正文起点 790 → 容 5 行，覆盖 99.97% 的条目（≥6 行仅 4 条），
+  顺带把原本超出屏幕 33px 的对白框美术整个拉回画面内。
+  选值方法不变：先按上面的公式算全表行数分布，再按"要容几行"反推 `ypos ≤ 屏高 - 行数*行距 - dialogue_ypos`。
+
 ---
 
 ## 6. 字体与断行（两个独立问题，都要解决）
@@ -259,6 +318,16 @@ translate zh style say_dialogue:
 `tag` 模式的三个要点：
 
 1. 字体文件复制到 `game/tl/<lang>/font/` 下（纯新增），`renpy.loader` 能直接从 `tl/` 子目录加载，`{font=tl/zh/font/NotoSansSC-VF.ttf}` 实测可用（8.3.7）。
+   **但先确认游戏是不是本来就带了一份 CJK 字体**：带官方多语言译文的发行版几乎都会打进来
+   （By Justice or Mercy：`game/fonts/NotoSansSC-VariableFont_wght.ttf`，17MB）。这种场合用
+   `build_tl.py --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf`
+   ——路径由 `renpy.loader` 按游戏内路径解析，**一个字节都不新增**，`uninstall.py --dry-run` 里也不会多出字体。
+   `--cjk-font` 只用于"游戏确实没有 CJK 字体"的情况。
+   另一条同样零成本的路子：**照抄游戏自己的惯例**。有些游戏在 `options.rpy` 里写了
+   `translate <lang> python: gui.text_font = "fonts/NotoSansSC-..."`（本项目 219 行起，为 chinese/japanese/korean/russian 各写一块），
+   给新语言补一块 `translate zh python:` 即可——它天然在 `gui._apply_rebuild()` 之后执行（§6.1 第三层要解决的问题它已经解决了），
+   代价是中英两行都换成 CJK 字体，原版拉丁字形会变（所以默认还是 `--font-ref` 的 tag 方案）。
+
 2. **换行要包在标签外面**：`{font=…}{i}{color=…}{size=25}中文{/color}{/size}{/i}{/font}` 这种嵌套是合法的，且因为 `{size=}`/`{color=}` 是逐行生效的，中文行会继承原文独白的斜体/灰色/小号字——**视觉上中英两行同一语域**，这是"贴合氛围"的一部分。
 3. 因此 **`zh` 字段里要连标签一起存**（不只是散文），生成器才能退化成一行 `new = wrap(zh) + "\n" + en`；顺带让 `apply_trans.py` 的"标签多重集必须相等"变成真正的守恒闸门。
 
@@ -314,6 +383,12 @@ init -1000 python:
   1. 英文里出现的专名，中文里必须原样出现（漏了 = 大概率错位一行）。
   2. 中文里不许残留小写英文单词（`preceding`/`deliberate`/`overwhelming` 这种"半句没翻"的漏网之鱼，人眼很容易滑过去）。
 - **专名集合要三条过滤同时用**，单条都会误报：出现 ≥2 次、其小写形式在语料里从不出现（挡掉 `But/See/Her/You`）、**至少一次真的在句中**（前面紧跟小写词且中间没有句号，挡掉 `Honestly/Holy/Ugh/Mmm` 这类句首感叹词）。另外匹配要用"左右都不是字母"的边界，否则 `Le` 会在 `Leo` 里命中，制造一片假阳性。
+- **严重度分档（By Justice or Mercy 把这条改掉了）**：自动探测出来的"专名"里混着 `*Giggle*`、`Mmm`、`Pregnancy`、`Trans`、`Dom/Sub`、`Gala`、`CEO` 这类**拟声词和游戏术语**，官方译者对它们做术语翻译（咯咯笑/怀孕/变性/支配）是正确行为，不是错位——所以自动探测的 MISSING-NAME 一律降级为 **warn**。硬失败只留给 `--only-names`（用 `speakers.json` 的显示名当唯一权威名单）命中的行。同时：
+  - `[插值]` 里的标识符（`[mcshort]`、`[groupname]`、`[mnnickname]`）**不是漏译**，LEAK 判定要先剥掉 `[...]`（本项目 201 条 LEAK 全是这个假阳性）。
+  - `--names` 要接受逗号分隔（原来 `split()` 只按空白切，传逗号串会整串变成一个永不命中的名字，**看起来"跑了"其实没生效**）。
+  - 报告含中文时 `print()` 在 Windows GBK 控制台直接崩（`UnicodeEncodeError`），文件已经写出去了但退出码非零。工具开头统一 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`。
+  - 跑完剩下的 LEAK 要逐条看：本项目 12 条全是**故意的**（剧情里的法语点单台词、`死亡flag` 这种玩家黑话），不要机械去"修"。
+
 
 ---
 
@@ -336,8 +411,27 @@ init -1000 python:
    **同一批复验里踩到的 API 坑**（都会让回调静默失败，症状是"报告没写出来"）：
    - `renpy.get_screen` / `renpy.style.get` 在 `init python` 块里**取不到**（`renpy` 包上没有这些属性）。要用 `renpy.exports.get_screen`，或 `import renpy.display.style`（8.3.7 里这个模块名不存在，样式断言别写死，改成"取不到就跳过"）。
    - 因此**别把布局验证建在样式自省上**，直接截图看。
-   - **布局验证必须走真实的 say 屏幕。** 我踩过一次假通过：另开一个临时 screen，里面每个 `window` 只放**一个** `text`，截图看着一切正常 —— 而真实游戏里那个 window 有两个子节点（namebox + 正文），`ysize None` 触发隐式 `Fixed` 撑满全屏，直接把游戏搞坏。**单子节点的复现不出来多子节点的布局**，这种"看起来更省事"的合成验证等于没验证。
-   - 正确做法：在临时文件里写一个真的 `label`，用 `Character` + say 语句走真实路径，配合自动前进逐条截图：
+   - **布局验证必须走真实的 say 屏幕。** 踩过一次假通过：另开一个临时 screen，里面每个 `window` 只放**一个** `text`，截图看着一切正常 —— 而真实游戏里那个 window 有两个子节点（namebox + 正文），`ysize None` 触发隐式 `Fixed` 撑满全屏，直接把游戏搞坏。**单子节点的复现不出来多子节点的布局**，这种"看起来更省事"的合成验证等于没验证。
+     另一种同样不算真实路径的做法：自建 screen 里 `use say(who, what)` 再挂进 `config.always_shown_screens`。
+     那样窗口脱离了它自己的布局上下文，实测会出现"没有 textbox 背景 + namebox 压在正文第一行上"的**假故障**，
+     而真正的溢出问题反而看不出来（8.5.3 复验）。
+   - 正确做法：在临时文件里写一个真的 `label`，用真 `Character` + 真 say 语句走真实路径，逐条截图。**首选 `interact=False`**：
+
+     ```rpy
+     label zz_selftest:
+         python:
+             for i, r in enumerate(_ZZ_CASES):
+                 who = renpy.store.__dict__.get(r["who"])          # 真的 Character 对象
+                 tr = R.translation.translate_string(r["en"])      # 真的查找路径
+                 renpy.say(who, tr, interact=False)                # 显示但不等点击
+                 renpy.pause(0.4)
+                 renpy.screenshot(os.path.join(shots, "rs_%02d.png" % i))
+     ```
+
+     `interact=False` 是关键开关（`renpy/exports/sayexports.py:87` 的 docstring 写了）：合成点击送不进 SDL 窗口，
+     而它走完真实 say 路径又不会卡住等点击，截图时机由 `renpy.pause` 决定，确定性的。
+     备选写法（要逐字复制源英文时）：开自动前进逐条走
+
      ```rpy
      label zz_lines:
          $ renpy.game.preferences.auto_forward = True
@@ -345,8 +439,16 @@ init -1000 python:
          $ renpy.game.preferences.text_cps = 0
          "…这里必须是逐字复制的源英文，标点也要一样…"
      ```
+
      回调里等 `renpy.exports.get_screen("say")` 为真、且 `renpy.game.context().current` 变化后再**等约 1.6s** 才截图（立刻截会只拿到黑屏，文字还没画出来）。
-     探针字符串**要从 `en-zh.json` 里程序化取**，不要手敲：手敲会把 `’` 打成 `'`，`strings:` 表按内容匹配，一个字符不同就静默不译，你会误判成"翻译没生效"。
+     探针字符串/文本**一律从 `localization/en-zh.json` 里程序化取**，不要手敲：手敲会把 `’` 打成 `'`，`strings:` 表按内容匹配，一个字符不同就静默不译，你会误判成"翻译没生效"。按"最长 / 含 `{i}` / 含 `[插值]` / 最短 / 无标签"挑样本。
+   - **`init python` 里不要 `import renpy`**：store 上的 `renpy` 名字指向的是 `renpy.exports`，
+     一句 `import renpy` 会把它换成包对象，引擎自己的 `renpy/common/00start.rpy:211`
+     立刻崩 `AttributeError: module 'renpy' has no attribute 'execute_default_statement'`（错误处理里还会二次崩在 `renpy.get_side_image`）。
+     需要包级 API 时用别名：`_R = sys.modules["renpy"]`、`_X = sys.modules["renpy.exports"]`。
+   - **`default persistent.x = ...` 只在游戏上下文里生效**（如 By Justice or Mercy 的 `screens.rpy:1127 default persistent.color = True`，
+     而 `screen say` 就是靠它挑窗口样式/背景的）。在主菜单里做探针会走到"两个分支都不成立"的畸形渲染。
+     所以布局探针必须先 `_X.jump_out_of_context("zz_selftest")` 进真实上下文，再在自己的 label 里渲染。
 1. **`RENPY_AUTO_LOAD=<存档名>` 环境变量**：启动即载入存档，直接进真实游戏界面。最有用的一招（前提是 `game/saves/` 里有存档；全新发行包通常没有）。
 2. **没有存档时怎么进剧情**：在 periodic 回调里执行 `renpy.jump_out_of_context("start")` —— 它 raise 的 `JumpOutException` 会冒泡到主菜单 context 的主循环并被正确处理，**等价于点 START**，且不像 `renpy.jump()` 那样跳过 store 初始化（见第 4 条）。实测能稳定进入 prologue 对白。
    **限定条件（8.3.7 实测）**：只有当前 context 是**主菜单**时才"被正确处理"。很多发行版在 `00start.rpy` 里先 `call _splashscreen`，而游戏的 `splashscreen` 是十几秒的警告视频 + 开场动画；在这期间抛 `JumpOutException` 会一路冒出 `run_context`，直接写 `traceback.txt` 崩给玩家看。所以要么用 `renpy.exports.get_screen("main_menu")` 卡住时机，要么把 tick 数给得足够晚（本项目 32s 才安全）。**回调里 catch 异常时务必把 `JumpOutException` 原样 raise 出去**，否则你吞掉的就是跳转本身，症状是"跳转没生效"。
@@ -384,10 +486,11 @@ init -1000 python:
 | `tools/denames.py` | 复用官方译文时把音译人名还原成原文（判别式对齐 + 音译字闸门 + 人工补充表 + 所有格变体 + 最长优先） | JSON → 就地改写 + `names_proposed.tsv`（不过滤版供人工复核） |
 | `tools/dump_groups.py` | 把未译条目按序切成大组 | JSON → `localization/groups/group_NN.json` |
 | `tools/apply_trans.py` | 合并 agent 回传的译文分片，做标签/插值/换行守恒预检，拒绝项进 `rejected/` 保留原文便于复跑 | `out_NN.json` → 写回真源 JSON |
-| `tools/build_tl.py` | 生成 `tl` 文件 + 语言/字体/断行装配文件；`--layout`（zh-first / en-first / zh-only）、`--kinds`、`--clean`、`--limit`（冒烟测试）；自动扫描归档内已有 CJK 字体并按字重建映射 | JSON → `game/tl/<lang>/**.rpy` + `generated_files.txt` |
+| `tools/build_tl.py` | 生成 `tl` 文件 + 语言/字体/断行装配文件；`--layout`（zh-first / en-first / zh-only）、`--kinds`、`--clean`、`--limit`（冒烟测试）；`--font-mode map\|tag` + `--cjk-font`（复制字体）或 `--font-ref`（**引用游戏已自带的路径，零新增文件**）；`--window-style`（窗口样式真名）+ `--window-ypos`（固定高度框上移）；自动扫描归档内已有 CJK 字体并按字重建映射 | JSON → `game/tl/<lang>/**.rpy` + `generated_files.txt` |
 | `tools/qa.py` | 校验：BOM、**`old` 无重复（重复=启动即崩）**、每个 `old` 确实等于某条真实源串、双语对里英文未丢失、标签/插值守恒、覆盖率 | → `qa_report.txt`，非零退出码表示有问题 |
 | `tools/rpy_extract.py` | **模式 B**：游戏直接给散文本 `.rpy` 时的抽取器。先收集 `Character(...)` 变量名，只认"裸字符串"或"已知角色变量 + 字符串"两种语句，并且**只收 `label` 块内的**——`screen`/`style` 块里的裸字符串（`"bottom_left"` 这类）会被误判成对白，缩进栈判上下文可以挡住它 | `game/**/*.rpy` → 与 `extract.py` 完全同构的 `en-zh.json` |
-| `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上 | JSON → `align_report.txt`，非零退出码表示有问题 |
+| `tools/tl_reuse.py` | **模式 B 复用官方译文**：解析明文 `game/tl/<lang>/*.rpy` 里的 id 块 / `strings` 块，按**内容**配对（§3.6）。说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对是它的三条命门 | `tl/<lang>/*.rpy` + JSON → 就地填 `zh` + `reuse_report.txt` |
+| `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
 | `tools/uninstall.py` | 一键回滚（按 manifest + 扫 `tl/<lang>/` 双保险）。**扫描要收目录下全部文件**，不能只挑 `.rpy`/`.rpyc`——`--cjk-font` 复制进去的字体也在 `tl/<lang>/font/` 里，漏了就不是"零残留" | — |
 | `localization/glossary.md` | 人名表（保持原文，不音译）+ 硬约束 + 风格基线，直接喂给翻译 agent | — |
 | `localization/names_manual.tsv` | 去音译的人工补充映射，含 `前缀~禁止后接字` 语法 | — |
@@ -410,11 +513,15 @@ init -1000 python:
 10. 每次重建：删 `.rpy` **和** `.rpyc`，路径归一化后分组。
 11. 验证：外部截屏对 SDL/GL 窗口全黑 → 用 `config.periodic_callbacks` + `renpy.screenshot()` + `translate_string()` 自检；进剧情用 `jump_out_of_context("start")`，不是 `jump()`；临时文件连 `.rpyc` 一起删。
 12. 一切改动可一键回滚，原文件零修改。
-13. **对白框有没有固定 `ysize`** → 有就必须 `--textbox-height`，否则第二语言被推到屏幕外（§5.1）。
+13. **对白框有没有固定 `ysize`** → 有就必须处理，否则第二语言被推到屏幕外（§5.1）：先读 `screen say` 用的哪个样式名，能换底图就 `--textbox-height`（固定值，绝不 `ysize None`），背景写在 screen 里换不掉就 `--window-style` + `--window-ypos` 上移。
 14. **游戏有没有对某些文字显式 `{font=}`**（标题卡/打字机字体）→ 有就用 `--font-mode tag`，别用全局字体映射把它们一起换掉（§6.2）。
 15. `zh` 字段连 `{标签}` 一起存，让标签守恒成为真闸门；生成器只负责拼中英两行。
 16. 翻完跑 `align_check.py`：标签检查抓不到"错位一行"，专名与漏译检查能。
 17. 交付前 `uninstall.py --dry-run` 列出的必须**恰好**是你新增的文件，包含复制进去的字体。
+18. **模式 B 且 `game/tl/<lang>/*.rpy` 是明文** → 用 `tl_reuse.py` 按内容配对官方译文（§3.6）；收割正则要能吃 `# mc "old"` / `mc "new"` 的说话人前缀形态，未知转义要连反斜杠一起保留，配对失败先试折叠空白。
+19. **布局自检必须走真 `renpy.say(who, tr, interact=False)`**（在真实游戏上下文里），`always_shown` + `use say(...)` 的自建 screen 是假故障制造机（§9.0）。
+20. **`denames.py` 报 0 candidates ≠ 官方没音译人名**。再 `grep '·'` 一次，并用 `align_check --only-names` 的"英文有名字、中文没有"清单逐行确认（§3.5 第 6/7 条）。
+21. **改对白框之前先读 `screen say` 用的是哪个样式名**：`style "window"` 的游戏对 `say_window` 的覆盖完全无感；背景写在 screen 里时样式层也改不到它（§5.1）。
 
 ---
 
@@ -472,27 +579,37 @@ python tools/uninstall.py --dry-run           # 列出的必须全在你新增�
 判据：`find game -name '*.rpa'` 为空、`game/*.rpy` 能直接读到明文。**仍然不要改源码**，产物照旧落在 `game/tl/<lang>/`。
 
 ```bash
-# 1) 抽取（不需要解归档，所以不用 extract.py / denames.py）
+# 1) 抽取（不需要解归档，所以不用 extract.py）
 python tools/rpy_extract.py --game game --out localization/en-zh.json
 #   extract_report.txt 里确认三件事：
 #     character vars   : 只列出了真正的说话人变量
 #     say statements   : unique N，duplicate-old 应为 0（不为 0 说明有整句重复，已自动去重）
 #     然后跑一遍反向核对：源文件里的 say 行是否全部进了表（漏一行 = 少译一行）
 
+# 1b) 如果 game/tl/<官方语言>/*.rpy 是明文（自带官方译文）——先复用再翻译（§3.6）
+python tools/tl_reuse.py --tl game/tl/chinese            # 只看报告
+python tools/tl_reuse.py --tl game/tl/chinese --apply     # 本项目：18,608 条里 18,544 条直接复用
+#   然后 grep '·' localization/en-zh.json 查音译残留，按 §3.5 第 6/7 条手工补 names_manual.tsv
+
 # 2) 翻译：<=500 条直接主线程写 localization/out_NN.json（{id: 中文}，标签照抄）
 python tools/apply_trans.py          # 标签/插值/换行守恒预检
-python tools/align_check.py          # 错位 + 漏译审计，必须 FAILURES: 0
+python tools/align_check.py --only-names --names "$(python -c "...")"   # 硬失败必须 0
 
 # 3) 生成 + 校验
 python tools/build_tl.py --lang zh --kinds say --layout zh-first \
-    --font-mode tag --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf" \
-    --textbox-height <双语后需要的固定高度，按 §5.1 的公式算，不是原值> \
-    --window-bg <对白框底图路径> --flag <项目缩写>_bi_off --clean
+    --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf     --flag <项目缩写>_bi_off --clean
+#   游戏没自带 CJK 字体时改用 --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf"（复制一份进 tl/<lang>/font/）
+#   固定高度对白框二选一（§5.1）：
+#     能换底图 -> --textbox-height <按公式算的固定高度> --window-bg <底图>
+#     底图写在 screen 里换不掉 -> --window-style <screen say 真用的样式名> --window-ypos <绝对值>
 python tools/qa.py                   # 必须 FAILURES: 0
 
 # 4) 游戏内自检（§9）：临时 harness 截图 + translate_string 断言，用完连 .rpyc 一起删
 # 5) python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文件（含字体）
 ```
+
+`--font-ref` 与 `--cjk-font` 二选一：游戏已经带了 CJK 字体就用前者（零新增文件），没带才用后者（复制一份进 `tl/zh/font/`）。
+`--window-style/--window-ypos` 只在"固定高度对白框"需要上移时才写；先按 §5.1 读 `screen say` 确认窗口样式真名。
 
 模式 B 下 `--kinds say` 就够了：散文本项目的选择支/界面文案本来就不在抽取范围内（抽取器只认 `label` 块里的 say 语句），符合 §0.5 第 2 条"菜单不译"。
 
@@ -513,6 +630,18 @@ python tools/qa.py                   # 必须 FAILURES: 0
 | 全程墙钟 | — | 约 80 分钟（含侦察、字体、两轮返工、游戏内验证） |
 
 **模式 B 基线（The Tutor 1.0，2026-10-05，引擎 8.3.7）**：323 条对白 / 3.89 万字符 / 0 条自带译文 → 全部主线程翻译（3 个分片），无 agent 派发；产物 1 个 `script.rpy`（strings 表）+ 1 个 `00zz_bilingual.rpy` + 1 个字体，共 5 个新增文件；`qa.py` 与 `align_check.py` 均 FAILURES 0；游戏内一次启动即出双语，无 traceback。墙钟约 40 分钟，其中 3 次启动自检占了大头（每次 ~1.5 分钟，因为要等过场动画）。
+
+**模式 B + 自带明文官方译文基线（By Justice or Mercy v25，2026-10-05，引擎 8.5.3）**：
+18,608 条唯一串 / 18,164 条对白 / 64.9 万字符 → `tl_reuse.py` 复用 **18,544 条（99.65%）**，
+真缺口 64 条 / 1,629 字符（其中只有 20 条有实义，其余是拟声、`img:thumbN.png` 这类画廊占位串和 `[mc]~`）；
+主线程翻 20 条 + 修 4 条官方译文自身的问题（1 条 `不不不…` 300 字重复的破损条目、3 条西方人名音译）
++ 去音译 32 个名字（`denames --apply` 改写后残留 0）。产物 4 个 `.rpy`（18,117 对，含 120 条"无实义只出原文一行"）
++ 0 个新字体（`--font-ref` 用游戏自带的 NotoSansSC），`qa.py` / `align_check.py --only-names` 均硬失败 0，
+`uninstall.py --dry-run` 恰好 10 个文件。墙钟约 45 分钟，其中 3 次启动自检 + 一次探针方法学返工（见 §9.0 的 always_shown 假故障）占了一半。
+
+**对白框容量实测（用来判断要不要动 ypos）**：`gui.text_size 35`、`dialogue_width 1116`、`dialogue_ypos 65`、
+`textbox_height 278`、`window ypos 835` → 行距实测 58px，正文起点 900，屏幕 1080 → **只有 3 行可见**；
+双语行数分布 2 行 16,262 / 3 行 1,471 / 4 行 303 / ≥5 行 55。`ypos` 上移到 725 → 5 行，覆盖 99.97%。
 
 **这条基线用来判断"小项目该花多久"**：散文本 + 几百条对白，正常应该在 1 小时内收工；如果超过，多半是（a）在对白框高度上返工（先读 `style window` 再动手）、或（b）反复重启游戏等过场（改用 §9 的临时 screen 验证布局，不必推进剧情）。
 

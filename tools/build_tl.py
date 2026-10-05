@@ -207,7 +207,8 @@ FONT_TAG_BLOCK = """\
 
 
 def style_blocks(lang, font_mode, primary, textbox_height,
-                 window_bg="gui/textbox.png", window_borders="430, 20"):
+                 window_bg="gui/textbox.png", window_borders="430, 20",
+                 window_styles=("say_window",), window_ypos=None):
     out = []
     if font_mode == "map" and primary:
         for st in ("default", "say_dialogue", "nvl_dialogue"):
@@ -225,13 +226,20 @@ def style_blocks(lang, font_mode, primary, textbox_height,
             "    background Frame(\"%s\", %s, xalign=0.5, yalign=1.0)\n"
             % (lang, textbox_height, window_bg, window_borders)
         )
+    # Alternative to the above when the artwork must not stretch: move the box up.
+    # NOTE the style names - a game whose `screen say` says `style "window"` never
+    # touches say_window, so `--window-style window,window1` is what works there.
+    for st in window_styles:
+        if window_ypos is not None:
+            body += "\ntranslate %s style %s:\n    ypos %d\n" % (lang, st, window_ypos)
     out.append(body)
     return "\n".join(out)
 
 
 def write_setup(path, lang, fonts, cjk_fonts, picker_name, flag,
                 font_mode="map", textbox_height=0, font_tag=None,
-                window_bg="gui/textbox.png", window_borders="430, 20"):
+                window_bg="gui/textbox.png", window_borders="430, 20",
+                window_styles=("say_window",), window_ypos=None):
     if font_mode == "map":
         fm, frm, primary = build_font_map(fonts, cjk_fonts)
         font_block = FONT_MAP_BLOCK.format(
@@ -253,7 +261,8 @@ def write_setup(path, lang, fonts, cjk_fonts, picker_name, flag,
         picker_name=picker_name,
         flag=flag,
         style_blocks=style_blocks(lang, font_mode, primary, textbox_height,
-                                  window_bg, window_borders),
+                                  window_bg, window_borders,
+                                  window_styles, window_ypos),
     )
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write("\ufeff" + body)
@@ -292,6 +301,13 @@ def main():
              "--font-mode tag, or when the game ships no CJK font at all)",
     )
     ap.add_argument(
+        "--font-ref",
+        default=None,
+        help="path renpy.loader can already resolve (a font the GAME ships). "
+             "--font-mode tag wraps the Chinese line in {font=THIS} and copies "
+             "nothing - use it whenever the archive/dir already has a CJK font",
+    )
+    ap.add_argument(
         "--textbox-height",
         type=int,
         default=0,
@@ -311,6 +327,15 @@ def main():
         help="Frame left/right, top/bottom borders in px. left+right must stay "
              "under the image width or the horizontal fades get squeezed",
     )
+    ap.add_argument(
+        "--window-style", default="say_window",
+        help="comma list of the styles the game's say window really uses. Read "
+             "`screen say` first: a game that writes `style \"window\"` never sees "
+             "say_window, so the default does nothing there.")
+    ap.add_argument("--window-ypos", type=int, default=None,
+        help="absolute ypos for --window-style. Raising a FIXED-height box is the "
+             "no-stretch way to gain lines (ysize None turns a two-child window "
+             "into a full-screen Fixed, see playbook 5.1).")
     ap.add_argument(
         "--manifest", default="localization/generated_files.txt"
     )
@@ -353,7 +378,9 @@ def main():
     # Copy the CJK font INTO the overlay dir: pure addition, and the path the game
     # loads stays under game/tl/<lang>/ so uninstalling is still just deleting files.
     font_tag = None
-    if args.cjk_font:
+    if args.font_ref:
+        font_tag = args.font_ref
+    elif args.cjk_font:
         fdir = os.path.join(out_dir, "font")
         os.makedirs(fdir, exist_ok=True)
         base = os.path.basename(args.cjk_font)
@@ -391,6 +418,8 @@ def main():
         font_mode=args.font_mode, textbox_height=args.textbox_height,
         font_tag=font_tag, window_bg=args.window_bg,
         window_borders=args.window_borders,
+        window_styles=tuple(x.strip() for x in args.window_style.split(",")),
+        window_ypos=args.window_ypos,
     )
     written.append(setup)
     if args.font_mode == "tag" and not font_tag:

@@ -82,7 +82,32 @@ def main():
         help="human-confirmed latin<TAB>cjk,comma-list rows merged into the mapping",
     )
     ap.add_argument("--backup", default="localization/en-zh.before_denames.json")
+    ap.add_argument(
+        "--seed", default=None,
+        help="names we already know are names: the speakers.json written by "
+             "rpy_extract/extract, a text file of names, or a comma-separated list. "
+             "Seeded names skip the frequency count, the transliteration-char gate "
+             "and the strict apply threshold, because the discriminant alone decides.")
+    ap.add_argument("--seed-min-in", type=float, default=0.12,
+                    help="inside-A frequency gate for seeded names")
+    ap.add_argument("--seed-apply-min-in", type=float, default=0.12,
+                    help="apply threshold for seeded names (auto-detected ones keep 0.4)")
     args = ap.parse_args()
+
+    seeded = set()
+    if args.seed:
+        if os.path.exists(args.seed):
+            raw = open(args.seed, encoding="utf-8-sig").read()
+            if raw.lstrip().startswith("{") or raw.lstrip().startswith("["):
+                j = json.loads(raw)
+                dn = j.get("display_names", j) if isinstance(j, dict) else j
+                names = {w for v in (dn.values() if isinstance(dn, dict) else dn)
+                         for w in re.findall(r"[A-Za-z]{3,}", str(v))}
+            else:
+                names = {w for w in re.split(r"[,\s]+", raw) if w}
+            seeded = {n for n in names if n[0].isupper()}
+        else:
+            seeded = {w for w in re.split(r"[,\s]+", args.seed) if w and w[0].isupper()}
 
     recs = json.load(open(args.json, encoding="utf-8"))
     kinds = tuple(k.strip() for k in args.kinds.split(","))
@@ -99,18 +124,24 @@ def main():
             if m.start() == 0:
                 continue  # sentence-initial capitalisation is not evidence
             cand[w] += 1
-    cands = [w for w, c in cand.items() if c >= args.min_count]
-    print("candidate names: %d" % len(cands))
+    cands = sorted({w for w, c in cand.items() if c >= args.min_count} | seeded)
+    print("candidate names: %d (%d seeded)" % (len(cands), len(seeded & set(cands))))
 
-    # 2/3. discriminative CJK n-grams
+    # 2/3. discriminative CJK n-grams. One combined alternation: testing every
+    # candidate against every line is quadratic and does not finish on 18k lines.
+    name_re = re.compile(
+        r"(?<![A-Za-z])(?:%s)(?![A-Za-z])" % "|".join(re.escape(w) for w in cands)
+    ) if cands else None
     gram_in = collections.defaultdict(collections.Counter)
     gram_out = collections.Counter()
+    in_lines = collections.Counter()
     out_lines = 0
     for en, zh in pairs:
         grams = cjk_grams(zh)
-        matched = [w for w in cands if re.search(r"(?<![A-Za-z])%s(?![A-Za-z])" % w, en)]
+        matched = name_re.findall(en) if name_re else []
         if matched:
-            for w in matched:
+            for w in set(matched):
+                in_lines[w] += 1
                 for g in grams:
                     gram_in[w][g] += 1
         else:
@@ -121,16 +152,23 @@ def main():
     rows = []
     unfiltered = []
     for w in cands:
-        a = sum(1 for en, _ in pairs if re.search(r"(?<![A-Za-z])%s(?![A-Za-z])" % w, en))
+        a = in_lines[w]
+        if not a:
+            continue
+        thr = args.seed_min_in if w in seeded else args.min_in
         scored = []
         for g, c in gram_in[w].items():
             fin = c / max(1, a)
             fout = gram_out[g] / max(1, out_lines)
-            if fin >= args.min_in and fout <= args.max_out:
+            if fin >= thr and fout <= args.max_out:
                 scored.append((fin - fout, fin, fout, g, c))
         scored.sort(reverse=True)
         unfiltered.append((w, a, scored[:5]))
-        best = [s for s in scored if any(ch in TRANSLIT_CHARS for ch in s[3])]
+        if w not in seeded:
+            # a transliteration usually shows the phonetic chars; this gate is only
+            # a guard for names we guessed from capitalisation. Seeded names skip it.
+            scored = [s for s in scored if any(ch in TRANSLIT_CHARS for ch in s[3])]
+        best = scored
         # keep the longest mutually-covering grams only
         keep = []  # (gram, fin, fout, count)
         for score, fin, fout, g, c in best:
@@ -167,8 +205,9 @@ def main():
     # unambiguous ones, plus whatever the human confirmed in the manual file.
     subs = {}
     for w, a, keep in rows:
+        thr = args.seed_apply_min_in if w in seeded else 0.4
         for g, fin, fout, c in keep:
-            if fin >= 0.4 and fout <= 0.005:
+            if fin >= thr and fout <= 0.005:
                 subs[g] = w
     if args.manual and os.path.exists(args.manual):
         for line in open(args.manual, encoding="utf-8"):
