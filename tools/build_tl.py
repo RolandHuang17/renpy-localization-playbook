@@ -208,12 +208,18 @@ FONT_TAG_BLOCK = """\
 
 def style_blocks(lang, font_mode, primary, textbox_height,
                  window_bg="gui/textbox.png", window_borders="430, 20",
-                 window_styles=("say_window",), window_ypos=None):
+                 window_styles=("say_window",), window_ypos=None, text_size=None):
     out = []
     if font_mode == "map" and primary:
         for st in ("default", "say_dialogue", "nvl_dialogue"):
             out.append("translate %s style %s:\n    font %r\n" % (lang, st, primary))
     body = 'translate %s style say_dialogue:\n    language "eastasian"\n' % lang
+    if text_size:
+        # The ONLY lever to pull when bilingual text does not fit: shrink the type.
+        # Both languages share this one style, so one number moves both lines.
+        # Never resize or move the window - the box height is the designer's call.
+        body += "    size %d\n" % text_size
+        body += "\ntranslate %s style nvl_dialogue:\n    size %d\n" % (lang, text_size)
     if textbox_height:
         # Grow the fixed-height say window to fit both languages. Do NOT use
         # `ysize None`: the stock say screen's window holds a namebox AND the
@@ -239,7 +245,7 @@ def style_blocks(lang, font_mode, primary, textbox_height,
 def write_setup(path, lang, fonts, cjk_fonts, picker_name, flag,
                 font_mode="map", textbox_height=0, font_tag=None,
                 window_bg="gui/textbox.png", window_borders="430, 20",
-                window_styles=("say_window",), window_ypos=None):
+                window_styles=("say_window",), window_ypos=None, text_size=None):
     if font_mode == "map":
         fm, frm, primary = build_font_map(fonts, cjk_fonts)
         font_block = FONT_MAP_BLOCK.format(
@@ -262,7 +268,7 @@ def write_setup(path, lang, fonts, cjk_fonts, picker_name, flag,
         flag=flag,
         style_blocks=style_blocks(lang, font_mode, primary, textbox_height,
                                   window_bg, window_borders,
-                                  window_styles, window_ypos),
+                                  window_styles, window_ypos, text_size),
     )
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write("\ufeff" + body)
@@ -327,6 +333,10 @@ def main():
         help="Frame left/right, top/bottom borders in px. left+right must stay "
              "under the image width or the horizontal fades get squeezed",
     )
+    ap.add_argument("--text-size", type=int, default=None,
+        help="dialogue text size for this language (the game's gui.text_size is the "
+             "baseline; 1-2 steps down is how bilingual overflow gets solved). "
+             "Preferred over any window geometry change.")
     ap.add_argument(
         "--window-style", default="say_window",
         help="comma list of the styles the game's say window really uses. Read "
@@ -420,6 +430,7 @@ def main():
         window_borders=args.window_borders,
         window_styles=tuple(x.strip() for x in args.window_style.split(",")),
         window_ypos=args.window_ypos,
+        text_size=args.text_size,
     )
     written.append(setup)
     if args.font_mode == "tag" and not font_tag:

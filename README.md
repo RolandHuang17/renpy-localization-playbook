@@ -28,10 +28,12 @@ python tools/tl_reuse.py --tl game/tl/chinese --apply   # 仅 B+：游戏自带�
 python tools/apply_trans.py
 python tools/align_check.py --only-names --names "<speakers.json 的显示名>"   # 必须 FAILURES: 0
 python tools/build_tl.py --lang zh --kinds say --layout zh-first \
-    --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf     --flag <项目缩写>_bi_off --clean
+    --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf \
+    --text-size <比 gui.text_size 小 1~2 档的值> --flag <项目缩写>_bi_off --clean
 #   游戏没自带 CJK 字体时把 --font-ref 换成 --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf"（会复制一份进 tl/<lang>/font/）
-#   固定高度对白框才需要：--textbox-height <按 §5.1 公式算出的固定高度> --window-bg <底图>
-#   若 screen say 写死了 style "window"（不是 say_window）：--window-style window,window1 --window-ypos <绝对值>
+#   对白框塞不下双语时只降字号（--text-size，最多 1~2 档），不要动窗口几何：
+#   --textbox-height / --window-style / --window-ypos 留在工具里，只在用户明确要求改几何时才用（见手册 §5.2）。
+#   降完还塞不下就让它溢出——中文行在上面，所以中文一定看得见。
 python tools/qa.py                   # 必须 FAILURES: 0
 python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文件
 ```

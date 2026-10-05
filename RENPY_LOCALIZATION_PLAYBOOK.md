@@ -2,7 +2,7 @@
 
 > 面向执行者（人或编码 agent）的可复制流程。适用于 **Ren'Py 官方发行的 PC/zip 版游戏**（含打包脚本、无源码）。
 > **默认需求全在 §0.5**——只丢这份 md 时那 7 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
-> 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--window-style/--window-ypos` 与 §9.0 的探针方法学。
+> 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--text-size`、§5.2 的"对白框几何不许动"这条口径，与 §9.0 的探针方法学。
 > 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7** 上都验证过；标注版本相关的条目换版本需复验。
 > 配套工具集（11 个纯标准库 Python 文件，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）与 By Justice or Mercy（散文本 + 自带明文官方译文型）三个项目的 `tools/` 下。
 
@@ -19,6 +19,9 @@
 5. **翻译要贴合游戏氛围**：先判断题材与语域再下笔。旁白用书面腔，角色之间语域必须拉开（谁痞、谁端着、谁先绷不住），内心独白保持独白的视觉与语气。露骨内容按原文语气直译，不回避不美化——这是用户自有游戏的虚构文本本地化，回避会造成剧情断裂。
 6. **一切改动纯新增、可一键撤销**，原文件零修改（见 §11）。
 7. 做完先自检再交付（§9 + §12 的 qa/align），**不要**在没跑过游戏的情况下说"做好了"。
+8. **对白框的几何属于游戏设计，不许为了容纳双语去动它**（不高、不移、不改 `ysize`/`ypos`）。
+   塞不下时的唯一手段是**降字号，最多降 1~2 号**（中英共用一个 `say_dialogue` 样式，一个数就同时改两行）；
+   降完还塞不下就**让它溢出**——中文行排在上面，所以"中文一定看得见"这个底线天然成立（§5.1）。
 
 ## 0. 先判断适用性
 
@@ -264,19 +267,26 @@ The Tutor 实测：最长 7 行（中 3 + 英 4）= 267px，加 `ypos 75` = 342 
 - 背景必须换成 `Frame`：原图（1920×277）在更高的窗口里是**底对齐绘制**的，顶部会露出一条没有背景的缝隙，前几行字压在立绘上。`Frame` 的左右边框要**够宽**以保住美术两侧的渐隐（这里 430×2 < 1920），上下边框给小值（20）让中间拉伸——竖向渐变被拉长几乎看不出来。
 - 构建参数：`build_tl.py --textbox-height <算出来的固定高度> --window-bg <底图路径> --window-borders <左右,上下>` 生成上面这块。
 
-**但先读 `screen say` 再决定改哪个样式（By Justice or Mercy v25 踩到的修正）**：模板的 `window:` 走 `say_window`，
-可很多发行版把窗口写死成 `style "window"` / `"window1"`（按 `persistent.color` 二选一）。这种情况下面这块
-`translate <lang> style say_window` **完全无效**。更麻烦的是背景若写在 screen 里
-（`background Image(im.Alpha("gui/textbox.png", l_alpha))`），样式层的 `background Frame(...)` 也压不过它——
-screen 属性优先级高于样式，于是"增高 + 换 Frame"这条主路整个走不通。两个新开关：
+### 5.2 但是：默认**不要**动对白框几何（用户 2026-10-05 明确定的规矩）
 
-- `--window-style window,window1`：把样式块发到游戏真正使用的那个样式名上（默认 `say_window`，别照抄）。
-- `--window-ypos <绝对值>`：**上移而不是增高**，美术零变形、也不需要换背景。
-  本项目实测：`style window` 是 `xpos 130 / ypos 835 / ysize 278`，屏幕 1080 高，正文从 `ypos + dialogue_ypos = 900` 起排，
-  行距实测 58px → **只有 3 行可见**，双语长句必然掉出屏幕底边（原版单英文的长句本来就已经掉出去了）。
-  `ypos` 提到 725 后正文起点 790 → 容 5 行，覆盖 99.97% 的条目（≥6 行仅 4 条），
-  顺带把原本超出屏幕 33px 的对白框美术整个拉回画面内。
-  选值方法不变：先按上面的公式算全表行数分布，再按"要容几行"反推 `ypos ≤ 屏高 - 行数*行距 - dialogue_ypos`。
+上面那套"增高/换底图"是**技术可行**，不等于**该做**。设计者把对白框做成这个高度是有道理的：
+框越高越挡画面、越不像这个游戏。**双语塞不下时的处理顺序是固定的**：
+
+1. **什么都不改**，先看原版框能容几行（按 §5.1 的公式估行数分布）。绝大多数条目 1~2 行，本来就塞得下。
+2. 塞不下的比例太高时，**降字号**：`build_tl.py --text-size <比 gui.text_size 小 1~2 档的值>`。
+   中英两行共用同一个 `say_dialogue` 样式，所以一个数同时缩小两行；`--text-size` 会顺带带上 `nvl_dialogue`。
+   本项目实测：`gui.text_size 35 → 30` 后，典型对白（中 1 行 + 英 1 行）在原框里余量充足。
+3. **最多降两档，再塞不下就让它溢出。** 溢出是可接受的结果，因为中文行排在上面（`--layout zh-first`），
+   所以"中文一定看得见"这条底线自动成立，掉的只会是英文那一半——而英文玩家看的是原文，本来就读得懂。
+4. `--window-style` / `--window-ypos` 这两个开关留在工具里，但**只在用户明确要求改几何时使用**。
+   By Justice or Mercy 第一版就用 `--window-ypos 725` 把框整体上移了 110px，用户实玩后否掉了：
+   "很难受玩的，游戏设计者设计那么高的对话框是有道理的"。
+
+> 顺带记两个纯技术事实，将来真要动几何时用得上：
+> ① 模板的 `window:` 走 `say_window`，但很多发行版把窗口写死成 `style "window"` / `"window1"`（按 `persistent.color` 二选一），
+> 这时 `translate <lang> style say_window` **完全无效**，得用 `--window-style window,window1`。
+> ② 背景若写在 screen 里（`background Image(im.Alpha("gui/textbox.png", l_alpha))`），样式层的 `background Frame(...)` 压不过它——
+> screen 属性优先级高于样式，于是"增高 + 换 Frame"这条主路整个走不通，只能上移（`--window-ypos`）。
 
 ---
 
@@ -486,7 +496,7 @@ init -1000 python:
 | `tools/denames.py` | 复用官方译文时把音译人名还原成原文（判别式对齐 + 音译字闸门 + 人工补充表 + 所有格变体 + 最长优先） | JSON → 就地改写 + `names_proposed.tsv`（不过滤版供人工复核） |
 | `tools/dump_groups.py` | 把未译条目按序切成大组 | JSON → `localization/groups/group_NN.json` |
 | `tools/apply_trans.py` | 合并 agent 回传的译文分片，做标签/插值/换行守恒预检，拒绝项进 `rejected/` 保留原文便于复跑 | `out_NN.json` → 写回真源 JSON |
-| `tools/build_tl.py` | 生成 `tl` 文件 + 语言/字体/断行装配文件；`--layout`（zh-first / en-first / zh-only）、`--kinds`、`--clean`、`--limit`（冒烟测试）；`--font-mode map\|tag` + `--cjk-font`（复制字体）或 `--font-ref`（**引用游戏已自带的路径，零新增文件**）；`--window-style`（窗口样式真名）+ `--window-ypos`（固定高度框上移）；自动扫描归档内已有 CJK 字体并按字重建映射 | JSON → `game/tl/<lang>/**.rpy` + `generated_files.txt` |
+| `tools/build_tl.py` | 生成 `tl` 文件 + 语言/字体/断行装配文件；`--layout`（zh-first / en-first / zh-only）、`--kinds`、`--clean`、`--limit`（冒烟测试）；`--font-mode map\|tag` + `--cjk-font`（复制字体）或 `--font-ref`（**引用游戏已自带的路径，零新增文件**）；`--text-size`（中英共用 `say_dialogue` 的字号，双语溢出时的唯一手段）；`--window-style` / `--window-ypos` 保留但**默认不用**（§5.2）；自动扫描归档内已有 CJK 字体并按字重建映射 | JSON → `game/tl/<lang>/**.rpy` + `generated_files.txt` |
 | `tools/qa.py` | 校验：BOM、**`old` 无重复（重复=启动即崩）**、每个 `old` 确实等于某条真实源串、双语对里英文未丢失、标签/插值守恒、覆盖率 | → `qa_report.txt`，非零退出码表示有问题 |
 | `tools/rpy_extract.py` | **模式 B**：游戏直接给散文本 `.rpy` 时的抽取器。先收集 `Character(...)` 变量名，只认"裸字符串"或"已知角色变量 + 字符串"两种语句，并且**只收 `label` 块内的**——`screen`/`style` 块里的裸字符串（`"bottom_left"` 这类）会被误判成对白，缩进栈判上下文可以挡住它 | `game/**/*.rpy` → 与 `extract.py` 完全同构的 `en-zh.json` |
 | `tools/tl_reuse.py` | **模式 B 复用官方译文**：解析明文 `game/tl/<lang>/*.rpy` 里的 id 块 / `strings` 块，按**内容**配对（§3.6）。说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对是它的三条命门 | `tl/<lang>/*.rpy` + JSON → 就地填 `zh` + `reuse_report.txt` |
@@ -513,7 +523,7 @@ init -1000 python:
 10. 每次重建：删 `.rpy` **和** `.rpyc`，路径归一化后分组。
 11. 验证：外部截屏对 SDL/GL 窗口全黑 → 用 `config.periodic_callbacks` + `renpy.screenshot()` + `translate_string()` 自检；进剧情用 `jump_out_of_context("start")`，不是 `jump()`；临时文件连 `.rpyc` 一起删。
 12. 一切改动可一键回滚，原文件零修改。
-13. **对白框有没有固定 `ysize`** → 有就必须处理，否则第二语言被推到屏幕外（§5.1）：先读 `screen say` 用的哪个样式名，能换底图就 `--textbox-height`（固定值，绝不 `ysize None`），背景写在 screen 里换不掉就 `--window-style` + `--window-ypos` 上移。
+13. **对白框塞不下双语时，只降字号（`--text-size`，最多 1~2 档），绝不动几何**。降完还塞不下就让它溢出——中文在上面所以中文必然看得见（§5.2）。
 14. **游戏有没有对某些文字显式 `{font=}`**（标题卡/打字机字体）→ 有就用 `--font-mode tag`，别用全局字体映射把它们一起换掉（§6.2）。
 15. `zh` 字段连 `{标签}` 一起存，让标签守恒成为真闸门；生成器只负责拼中英两行。
 16. 翻完跑 `align_check.py`：标签检查抓不到"错位一行"，专名与漏译检查能。
@@ -597,11 +607,10 @@ python tools/align_check.py --only-names --names "$(python -c "...")"   # 硬失
 
 # 3) 生成 + 校验
 python tools/build_tl.py --lang zh --kinds say --layout zh-first \
-    --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf     --flag <项目缩写>_bi_off --clean
-#   游戏没自带 CJK 字体时改用 --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf"（复制一份进 tl/<lang>/font/）
-#   固定高度对白框二选一（§5.1）：
-#     能换底图 -> --textbox-height <按公式算的固定高度> --window-bg <底图>
-#     底图写在 screen 里换不掉 -> --window-style <screen say 真用的样式名> --window-ypos <绝对值>
+    --font-mode tag --font-ref fonts/NotoSansSC-VariableFont_wght.ttf \
+    --text-size <比 gui.text_size 小 1~2 档的值> --flag <项目缩写>_bi_off --clean
+#   游戏没自带 CJK 字体时把 --font-ref 换成 --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf"（复制一份进 tl/<lang>/font/）
+#   对白框塞不下双语就靠 --text-size 解决；--textbox-height / --window-ypos 不要主动用（§5.2）
 python tools/qa.py                   # 必须 FAILURES: 0
 
 # 4) 游戏内自检（§9）：临时 harness 截图 + translate_string 断言，用完连 .rpyc 一起删
@@ -609,7 +618,6 @@ python tools/qa.py                   # 必须 FAILURES: 0
 ```
 
 `--font-ref` 与 `--cjk-font` 二选一：游戏已经带了 CJK 字体就用前者（零新增文件），没带才用后者（复制一份进 `tl/zh/font/`）。
-`--window-style/--window-ypos` 只在"固定高度对白框"需要上移时才写；先按 §5.1 读 `screen say` 确认窗口样式真名。
 
 模式 B 下 `--kinds say` 就够了：散文本项目的选择支/界面文案本来就不在抽取范围内（抽取器只认 `label` 块里的 say 语句），符合 §0.5 第 2 条"菜单不译"。
 
@@ -639,9 +647,12 @@ python tools/qa.py                   # 必须 FAILURES: 0
 + 0 个新字体（`--font-ref` 用游戏自带的 NotoSansSC），`qa.py` / `align_check.py --only-names` 均硬失败 0，
 `uninstall.py --dry-run` 恰好 10 个文件。墙钟约 45 分钟，其中 3 次启动自检 + 一次探针方法学返工（见 §9.0 的 always_shown 假故障）占了一半。
 
-**对白框容量实测（用来判断要不要动 ypos）**：`gui.text_size 35`、`dialogue_width 1116`、`dialogue_ypos 65`、
+**对白框容量实测（用来判断要不要降字号）**：`gui.text_size 35`、`dialogue_width 1116`、`dialogue_ypos 65`、
 `textbox_height 278`、`window ypos 835` → 行距实测 58px，正文起点 900，屏幕 1080 → **只有 3 行可见**；
-双语行数分布 2 行 16,262 / 3 行 1,471 / 4 行 303 / ≥5 行 55。`ypos` 上移到 725 → 5 行，覆盖 99.97%。
+双语行数分布 2 行 16,262 / 3 行 1,471 / 4 行 303 / ≥5 行 55。
+第一版用 `--window-ypos 725` 上移换到 5 行，**用户实玩后否掉**（"很难受玩的，设计者做这个高度是有道理的"），
+最终形态是**几何零改动 + `--text-size 30`**：典型对白（中 1 行 + 英 1 行）在原框里余量充足，
+≥6 行的 4 条极端长句英文那一半掉出框外——按 §0.5 第 8 条这是可接受结果，中文在上面所以中文必然看得见。
 
 **这条基线用来判断"小项目该花多久"**：散文本 + 几百条对白，正常应该在 1 小时内收工；如果超过，多半是（a）在对白框高度上返工（先读 `style window` 再动手）、或（b）反复重启游戏等过场（改用 §9 的临时 screen 验证布局，不必推进剧情）。
 
