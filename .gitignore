@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+# 项目产物：游戏原文与译文一律不提交
+localization/*
+!localization/glossary.template.md
+game/
+*.rpa
+*.rpyc
