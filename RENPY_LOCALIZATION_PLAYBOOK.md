@@ -199,14 +199,25 @@ translate zh strings:
 
 ```rpy
 translate zh style say_window:
-    ysize None          # 让窗口跟随内容高度
-    yminimum 278        # 短对白仍然是原来的观感，不会被压扁
+    ysize 400           # 固定值，比原来的 278 高，够装最长那条双语
     background Frame("gui/textbox.png", 430, 20, xalign=0.5, yalign=1.0)
 ```
 
+**绝对不要用 `ysize None` 做"自适应高度"。** 直觉上 `ysize None` + `yminimum 278` 才是优雅解法，实测是灾难：stock say 屏幕的那个 `window` 里有**两个子节点**（namebox 的 window + 正文 text），SL 会隐式套一个 `Fixed`，而 **`Fixed` 把整个可用区域报告为自己的尺寸** → 窗口直接变成全屏高，`yalign 1.0` 失去意义，namebox 跑到屏幕顶端，被拉满的 `Frame` 底图把整个画面压暗，游戏没法玩。必须给**固定的 `ysize`**。
+
+`ysize` 怎么定（别拍脑袋，按全表算）：
+
+```python
+每行字符数：拉丁 ≈ 1316/(0.52*size)，CJK ≈ 1316/(1.02*size)   # size 取该条实际字号
+行数 = ceil(英文/拉丁每行) + ceil(中文/CJK每行)
+ysize = max(行数 * size * 1.32) + dialogue_ypos，再留 ~15% 余量
+```
+
+The Tutor 实测：最长 7 行（中 3 + 英 4）= 267px，加 `ypos 75` = 342 → 取 **400**。
+
 - 目标样式选 **`say_window`**，不要动 `window`：`style say_window is window` 是引擎给的（`renpy/common/00style.rpy`），`Character(window_style="say_window")` 默认就用它，所以只影响对白框，不会波及设置页/存档页。
-- 背景必须换成 `Frame`：原图（1920×277）在更高的窗口里是**底对齐绘制**的，顶部会露出一条没有背景的缝隙，文字压在立绘上。`Frame` 的左右边框要**够宽**以保住美术两侧的渐隐（这里 430×2 < 1920），上下边框给小值（20）让中间拉伸——竖向渐变被拉长几乎看不出来。
-- 构建参数：`build_tl.py --textbox-height 278` 会自动生成上面这块。
+- 背景必须换成 `Frame`：原图（1920×277）在更高的窗口里是**底对齐绘制**的，顶部会露出一条没有背景的缝隙，前几行字压在立绘上。`Frame` 的左右边框要**够宽**以保住美术两侧的渐隐（这里 430×2 < 1920），上下边框给小值（20）让中间拉伸——竖向渐变被拉长几乎看不出来。
+- 构建参数：`build_tl.py --textbox-height <算出来的固定高度> --window-bg <底图路径> --window-borders <左右,上下>` 生成上面这块。
 
 ---
 
@@ -325,7 +336,17 @@ init -1000 python:
    **同一批复验里踩到的 API 坑**（都会让回调静默失败，症状是"报告没写出来"）：
    - `renpy.get_screen` / `renpy.style.get` 在 `init python` 块里**取不到**（`renpy` 包上没有这些属性）。要用 `renpy.exports.get_screen`，或 `import renpy.display.style`（8.3.7 里这个模块名不存在，样式断言别写死，改成"取不到就跳过"）。
    - 因此**别把布局验证建在样式自省上**，直接截图看。
-   - 更稳的布局验证法：**另开一个临时 screen**，用 `style "say_window"` + `style "say_dialogue"` 把"最短/中等/最长"三种译文并排渲染出来，一张图同时验字形、断行、标签继承和窗口增高，不需要推进剧情。
+   - **布局验证必须走真实的 say 屏幕。** 我踩过一次假通过：另开一个临时 screen，里面每个 `window` 只放**一个** `text`，截图看着一切正常 —— 而真实游戏里那个 window 有两个子节点（namebox + 正文），`ysize None` 触发隐式 `Fixed` 撑满全屏，直接把游戏搞坏。**单子节点的复现不出来多子节点的布局**，这种"看起来更省事"的合成验证等于没验证。
+   - 正确做法：在临时文件里写一个真的 `label`，用 `Character` + say 语句走真实路径，配合自动前进逐条截图：
+     ```rpy
+     label zz_lines:
+         $ renpy.game.preferences.auto_forward = True
+         $ renpy.game.preferences.afm_time = 4.0
+         $ renpy.game.preferences.text_cps = 0
+         "…这里必须是逐字复制的源英文，标点也要一样…"
+     ```
+     回调里等 `renpy.exports.get_screen("say")` 为真、且 `renpy.game.context().current` 变化后再**等约 1.6s** 才截图（立刻截会只拿到黑屏，文字还没画出来）。
+     探针字符串**要从 `en-zh.json` 里程序化取**，不要手敲：手敲会把 `’` 打成 `'`，`strings:` 表按内容匹配，一个字符不同就静默不译，你会误判成"翻译没生效"。
 1. **`RENPY_AUTO_LOAD=<存档名>` 环境变量**：启动即载入存档，直接进真实游戏界面。最有用的一招（前提是 `game/saves/` 里有存档；全新发行包通常没有）。
 2. **没有存档时怎么进剧情**：在 periodic 回调里执行 `renpy.jump_out_of_context("start")` —— 它 raise 的 `JumpOutException` 会冒泡到主菜单 context 的主循环并被正确处理，**等价于点 START**，且不像 `renpy.jump()` 那样跳过 store 初始化（见第 4 条）。实测能稳定进入 prologue 对白。
    **限定条件（8.3.7 实测）**：只有当前 context 是**主菜单**时才"被正确处理"。很多发行版在 `00start.rpy` 里先 `call _splashscreen`，而游戏的 `splashscreen` 是十几秒的警告视频 + 开场动画；在这期间抛 `JumpOutException` 会一路冒出 `run_context`，直接写 `traceback.txt` 崩给玩家看。所以要么用 `renpy.exports.get_screen("main_menu")` 卡住时机，要么把 tick 数给得足够晚（本项目 32s 才安全）。**回调里 catch 异常时务必把 `JumpOutException` 原样 raise 出去**，否则你吞掉的就是跳转本身，症状是"跳转没生效"。
@@ -465,7 +486,8 @@ python tools/align_check.py          # 错位 + 漏译审计，必须 FAILURES: 
 # 3) 生成 + 校验
 python tools/build_tl.py --lang zh --kinds say --layout zh-first \
     --font-mode tag --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf" \
-    --textbox-height <style window 的固定 ysize> --flag <项目缩写>_bi_off --clean
+    --textbox-height <双语后需要的固定高度，按 §5.1 的公式算，不是原值> \
+    --window-bg <对白框底图路径> --flag <项目缩写>_bi_off --clean
 python tools/qa.py                   # 必须 FAILURES: 0
 
 # 4) 游戏内自检（§9）：临时 harness 截图 + translate_string 断言，用完连 .rpyc 一起删

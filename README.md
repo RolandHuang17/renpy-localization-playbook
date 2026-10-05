@@ -27,7 +27,7 @@ python tools/apply_trans.py
 python tools/align_check.py          # 必须 FAILURES: 0
 python tools/build_tl.py --lang zh --kinds say --layout zh-first \
     --font-mode tag --cjk-font "C:/Windows/Fonts/NotoSansSC-VF.ttf" \
-    --textbox-height <style window 的固定 ysize> --flag <项目缩写>_bi_off --clean
+    --textbox-height <双语后需要的固定高度> --flag <项目缩写>_bi_off --clean
 python tools/qa.py                   # 必须 FAILURES: 0
 python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文件
 ```

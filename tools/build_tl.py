@@ -214,14 +214,14 @@ def style_blocks(lang, font_mode, primary, textbox_height,
             out.append("translate %s style %s:\n    font %r\n" % (lang, st, primary))
     body = 'translate %s style say_dialogue:\n    language "eastasian"\n' % lang
     if textbox_height:
-        # A fixed-height say window (ysize gui.textbox_height) clips the second
-        # language off-screen. Let the window grow upward instead, keeping the
-        # original height as the minimum, and stretch its artwork with a Frame so
-        # no gap opens above the background.
+        # Grow the fixed-height say window to fit both languages. Do NOT use
+        # `ysize None`: the stock say screen's window holds a namebox AND the
+        # text, so SL wraps them in a Fixed, and a Fixed reports the whole
+        # available area as its size - the window silently becomes fullscreen
+        # and the stretched background dims the entire game.
         body += (
             "\ntranslate %s style say_window:\n"
-            "    ysize None\n"
-            "    yminimum %d\n"
+            "    ysize %d\n"
             "    background Frame(\"%s\", %s, xalign=0.5, yalign=1.0)\n"
             % (lang, textbox_height, window_bg, window_borders)
         )
