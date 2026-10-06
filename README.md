@@ -88,6 +88,8 @@ CG / 图鉴 / 图片 / 动画回看一起解。但**不要硬解** —— 要做
 | `rpy_extract.py` | 模式 B 抽取（明文 `.rpy`） |
 | `rpyc_extract.py` | 模式 B 但游戏带 `.rpyc` 时的抽取器：反序列化引擎真正加载的 AST 取 `Say.what` / `Menu` 标题（`old` 与引擎查表的字节完全一致），`--reuse` 按 identifier 连自带官方译文。`Character` 显示名回落到读 `.rpy`——8.1.2 的 AST 里源码只剩位置 |
 | `textbox_fit.py` | 双语行数的量化决策：读 `gui.rpy` 的宽高与字号，从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size`（§5.2 第 1-2 步的数据来源） |
+| `scan_bookmarks.py` | **路线书签的场景枚举器**：从引擎真正加载的 `.rpyc` AST 列出全部 `label`，报出每个场景的节点范围、`_in_replay` 头/尾守卫、尾跳目标、区间外绕行清单、出场说话人，并自带守卫检测覆盖率自检。用来回答"这个游戏的场景能不能直接进、有多少条值得做书签" |
+| `build_bookmarks.py` | 把扫描结果 + 判定结果 + 规则编成游戏内读的 `game/cc_bookmark_data.rpy`；自动推导"每个 menu 该选第几项"（靠成对分支反查，推不出来进 review 不猜） |
 | `repair_json.py` | 回收侧机械修复 agent 手写的 JSON（key 丢开引号、值里有未转义引号）；修完必须与 group 的 id 集合完全对齐才写回，否则退回重派 |
 | `style_audit.py` | **跨批次风格闸门**（手册 §10.5）：20 个 agent 并行必然在括号全/半角、`...`→`……`、`--` 与 `——`、`{b}Diane's{/b}` 英文所有格残渣、`{b}` 里没译的强调词上分叉，而 `align_check` 只管错位和漏译、抓不到这些。`--apply` 只做机械项（并先备份真源 JSON），判不出来的一律只报告 |
 | `make_selftest.py` + `selftest_template.rpy` | §9.0 的游戏内自检 harness：探针从真源 JSON 生成，走真实 say 屏幕，自动写 `translate_string` 命中报告 + 12 张截图 |
@@ -116,6 +118,23 @@ CG / 图鉴 / 图片 / 动画回看一起解。但**不要硬解** —— 要做
 - 规则文件**实例**含剧透、逐字引用游戏文本 → 属衍生内容，不提交；本仓只放
   [`localization/route_rules.template.json`](localization/route_rules.template.json)。
 - 详见手册 §16。
+
+## 路线书签（直接跳进目标场景）
+
+玩家不想玩别的剧情时，可以把某条线的**场景**做成游戏内可点的书签列表：
+`tools/scan_bookmarks.py` 枚举场景并判断每个 label 能否安全直进 → 规则文件 + 并发内容判定
+选出属于该路线的场景 → `tools/build_bookmarks.py` 生成数据 → `game/cc_bookmarks.rpy`
+提供菜单入口、快捷键、**停车闸**和**自动选那条**。
+
+- 点一条即进入真场景（对白 / 选项 / 动画都在原游戏里跑），场景演完自动回列表。
+- 走引擎自己的 `Replay(label, scope=…)`：干净 store、逐场景播种、退出时 `sb.restore()`
+  全量还原，回放期间 autosave 被抑制 —— **不影响主线进度**，这条不用自己实现。
+- 停车闸是必需的：作者通常只给做进画廊的少数场景写了 `if _in_replay: return`，
+  其余场景直进会顺着 `jump` 把后面的剧情一路播完。做法见手册 §17.3。
+- 判定**必须读内容不能读 label 名**（实测有名字反着骗人的成对分支），
+  并显式排除绑架/被捕这类"男性无力但不是 D/s"的剧情。
+- 纯新增文件，删掉 `game/cc_bookmarks.rpy` 与 `game/cc_bookmark_data.rpy` 即还原。
+- 详见手册 §17。
 
 ## 注意
 

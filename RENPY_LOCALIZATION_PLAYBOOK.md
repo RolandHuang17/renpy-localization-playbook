@@ -777,6 +777,8 @@ screen cc_gallery_unlock_button():
 | `tools/rpyc_extract.py` | **模式 B 的默认抽取器**（游戏带 `.rpyc` 时优先于 `rpy_extract.py`）：反序列化引擎真正加载的 AST，取 `Say.what` / `Menu` 标题——这就是引擎查 `strings:` 表时用的那几个字节，所以 `old` 不可能失配。`Character` 显示名回落到读 `.rpy`（8.1.2 的 AST 里源码只剩位置，见 §2）。`--reuse` 顺手按 identifier 连自带官方译文 |
 | `tools/textbox_fit.py` | §5.2 第 1-2 步的数据来源：从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size` 和（万一真要动几何时）所需 `ysize`，不拍脑袋 |
 | `tools/style_audit.py` | **跨批次风格闸门**（§10.5）：括号全/半角、`...`→`……`、`--` 不许变 `——`、`{b}X's{/b}` 英文所有格残渣、`{b}` 里没译的强调词、`daddy` 撞 `爸爸`。`--apply` 只做机械项并先备份真源 JSON，其余只报告 | 真源 JSON → 就地改写 + 分类计数报告 |
+| `tools/scan_bookmarks.py` | **路线书签的场景枚举器**（§17）：从引擎真正加载的 `.rpyc` AST 列出全部 `label`，给出每个场景的节点范围、`_in_replay` 头/尾守卫、尾跳目标、区间外绕行清单（`escapes`）、出场说话人、作者自己的状态播种行；`--dump-candidates` 按规则词表出候选批次喂判定 agent。自带覆盖率自检（`.rpy` 里 `_in_replay` 出现数 vs 扫到数），检测一滑会直接告警而不是静默少报 | `game/**/*.rpyc` → `scenes.json` + `scenes_report.txt` + 候选批 |
+| `tools/build_bookmarks.py` | 把 `scenes.json` + `verdicts_*.json` + `bookmark_rules.json` 编成 `game/cc_bookmark_data.rpy`（`define cc_bm_entries`）。最值钱的是 **picks 推导**：对每对成对分支，找一个 menu 的两个选项分别跳到这两个 label，记下该选第几项；推不出来就进 review 不猜。jump 从 `.rpy` 文本解析，因为 `Menu.items` 第二项是条件串不是块（§17.7） | 三份输入 → 数据 `.rpy` + `bookmark_review.txt` |
 | `tools/repair_json.py` | 回收侧机械修复：agent 手写的几百行 JSON 会出现"key 丢了开引号""值里有未转义引号"。按行修好后**必须与 group 的 id 集合完全对齐才写回**，对不上就退回重派——重派一组比误信一次修复便宜 |
 | `tools/make_selftest.py` + `tools/selftest_template.rpy` | §9.0 的现成 harness。探针语句从真源 JSON 生成；`mix` 模式按排版风险各取一条（最长行 / 带 `{size=26}` 补述 / 带名字框的台词 / 纯拟声单行）。跑完自动写 `selftest_report.txt`（`preferences.language`、`known_languages`、`font_name_map`、每条 `translate_string` 命中与否）和 12 张截图 |
 | `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
@@ -835,6 +837,20 @@ screen cc_gallery_unlock_button():
 32. **解锁是默认动作，但必须可切换**：做成游戏内按钮 + `persistent` 存状态（§11.2），
     别硬解。验证要**走按钮的真实 action 链**再截图——探针里直接改 `persistent` 字段，
     屏幕不会重跑，标签停在旧状态，会误判成"按钮没生效"。
+34. **书签的停车闸要"落进本场景才开始盯"，且回调里一律 `getattr(store, …)`**：
+    `default` 名在 init 期不存在，而 `statement_callbacks` 在 init 期就会被调用，
+    直接 `renpy.store.X` 会让游戏启动即崩（§17.3）。允许范围走 `Replay(scope=…)` 注入，
+    靠引擎 `sb.restore()` 自动解除武装；另加语句计数熔断，写错范围时最坏是提前结束。
+35. **自动选的唯一切点是 `renpy.store.menu`**；patch `renpy.exports.display_menu` 无效，
+    `interact=False` 返回 `None` 会**静默跳过选择**，不能拿来自动选（§17.4）。
+    判不出方向必须落回真菜单弹给玩家。
+36. **`label` 名会骗人，书签判定必须读内容**；绑架/被捕这类"男性无力但不是 D/s"要显式排除；
+    喂给判定 agent 的场景文本要按**全部 label** 划边界，按候选划会越界（本项目整批作废重跑）。（§17.5）
+37. **改完 `.rpy` 先 `"<游戏>.exe" --lint`**：parse 错误只进 `log.txt` 并弹错误框，
+    只查 `traceback.txt` 的自检会假通过。（§17.7）
+38. **书签 UI 截图必须走真实 `ShowMenu()`**，`show_screen` 会让 `get_screen()` 为真但画面没渲染；
+    `ShowMenu` 阻塞期间 periodic 回调仍跑，正好在那里截图。探针写过的 `persistent` 开关会存盘泄漏，
+    每轮要显式设定并复原。（§17.6）
 31. **解锁图鉴优先找开发者留的死开关**（`grep` 门控表达式，看 `or XXX_UNLOCKED == 1`），
     比填 persistent 干净；验证要断言整个门控表达式 + 真截图，不是只看 flag（§11.1）。
 31. **工具复制过来先跑一遍 `--help` 扫描**（§14 第 0 步）。这一轮 `rpyc_extract.py` 和 `repair_json.py`
@@ -1041,6 +1057,17 @@ token：正常组 **30-60 万/组**，3 个跑偏组 260 / 370 / 630 万，全�
   踩到的新坑：`ToggleField` / `Function` 不在 `renpy.exports` 上（8.0.3 `AttributeError`），
   探针里得用 `renpy.store.*`；UI 字体没有 CJK，按钮标签不包 `{font=}` 就是豆腐块。
 
+**路线书签基线（Carnal Contract Season One，2026-10-06，引擎 8.0.3）**：
+392 个 label → 扫描器报出 23 个双守卫 / 7 个仅播种 / 17 个仅停车守卫；
+按放宽词表 + 排除表初筛出 16 条候选 → 3 个并发判定 agent（每组 5-6 条，3-6 次调用 / 19-40 万 token）
+→ 4 yes / 6 unsure / 8 no → 10 条书签，全部依赖停车闸（**没有一条是作者做过回放守卫的**）。
+picks 自动推导出 2 处（ch8 `menu:7055` → #1 Submissive.；ch2 `menu:2017` → #1）。
+墙钟：扫描+初筛约 3 分钟，判定约 5 分钟（并发），停车闸/自动选/UI 三轮实机验证约 25 分钟，
+其中两次返工都是被 §17.7 的坑拖的（screen 语言续行、`[f()]` 插值）。
+实测结论：本作的这类内容总量本来就少（10 条，其中 6 条待确认），**"书签能不能做出来"和
+"这款游戏值不值得做"是两个独立判断** —— 扫描器的 `safe cold entry` 计数和候选数是先验指标，
+开工前先跑一次扫描器再决定。
+
 **用来判断"哪里不对"的红线**：
 - `extract` 的 say 条数比 `.rpyc` 源文件数×合理对白量高出一个数量级 → 大概率没排除 `tl/**`（§3）。
 - 单组 token 超过 100 万 → agent 在自我校验，prompt 里把"禁止自检"写得更硬（§8）。
@@ -1149,3 +1176,203 @@ Ren'Py 没有逐字回退（§6.1），所以直接写就是豆腐块——第�
 `route_rules.json` 的**实例**含剧透（label 名、变量名、`why` 字段逐字引用游戏文本），算衍生内容：
 公开仓只放 `localization/route_rules.template.json`（字段 + `$doc` + 空值），
 实例与 `route_marks.json` / `route_review.txt` 一律 gitignore，和 `en-zh.json` 同级处理。
+
+---
+
+## 17. 路线书签：把玩家想看的那条线的**场景**直接列成可点入口
+
+> 需求来源（用户 2026-10-06）："我喜欢男M女S情节，在游戏里单独开一个游玩项，把所有这类情节集中进去，
+> 一口气玩完，不用浪费时间过其他剧情；而且**不是**只玩作者精选的 CG，而是真正进原游戏内部，
+> 过对话、剧情、选项、动画 —— 相当于往游戏里插一堆书签。"
+
+### 17.1 它和 §16 路线标记是两件事
+
+| | §16 路线标记 | §17 路线书签 |
+| --- | --- | --- |
+| 解决的问题 | 玩家**正在玩**，需要知道下一步该选哪个 | 玩家**不想玩别的**，要直接跳到目标场景 |
+| 单位 | 一个选项字符串（`strings:` 替换） | 一个 `label`（引擎的跳转目标） |
+| 判定依据 | 选项 body 里改了哪个数值 | 场景**内容**（数值状态常常根本不存在） |
+| 覆盖范围 | 只有 menu 站点 | 全部场景，包括作者没做进画廊的 |
+
+两者共用一份判定纪律（**判不出来一律进 review，不许猜**），但不共用代码路径。
+
+### 17.2 引擎已经把最难的部分做完了：`Replay(label, scope=…, locked=False)`
+
+8.0.3 的链路（行号都实测过）：
+`Replay.__call__`（`renpy/common/00action_other.rpy:426-443`）→ `renpy.game.call_replay`
+（`renpy/game.py:362-419`）：
+
+```python
+old_log = renpy.game.log; renpy.game.log = renpy.python.RollbackLog()
+sb = renpy.python.StoreBackup(); renpy.python.clean_stores()   # store 回到 init 后的干净值
+context = renpy.execution.Context(True); contexts.append(context)
+renpy.exports.execute_default_statement()                      # default 全部重放
+for k, v in config.replay_scope.items(): setattr(store, k, v)
+for k, v in scope.items(): setattr(store, k, v)                # ← 逐场景注入前置状态
+store._in_replay = label
+context.goto_label("_start_replay"); run_context(False)
+finally: contexts.pop(); renpy.game.log = old_log; sb.restore()  # ← 退出时全量还原
+```
+
+`_start_replay`（`renpy/common/00start.rpy:158-167`）会 `call _start_store`（**跑
+`config.start_callbacks`**，所以覆盖层的语言/解锁钩子在回放里同样生效）、`scene black`、
+`_init_language()`、`block_rollback(purge=True)`，最后 `jump expression _in_replay`。
+回放期间 autosave 被引擎主动抑制（`renpy/loadsave.py:540-542`）。
+
+**结论**：用户要的"自动快照、退出不影响主线"不用自己实现，`Replay` 就是它。
+`scope` 是官方给的状态播种口 —— 别自己造快照层。
+
+### 17.3 停车闸：这一节是本功能真正的工程量
+
+`Replay` 是 `jump` 进目标 label，不是 `call`，所以**目标 label 必须自己知道什么时候停**。
+作者的写法是在场景末尾加：
+
+```rpy
+    if _in_replay:
+        return
+    jump e1scene01_continue      # 正常游玩才往下走
+```
+
+实测 Carnal Contract：392 个 label 里只有 **23 个**头尾守卫齐全，
+**而符合本路线的 16 条候选里，一条都没有守卫** —— 作者做进画廊的场景和他自己的敏感内容不重合。
+不加停车闸的话，`e8_hotel_with_diane_submissive_sex` 会在 `chapter08.rpy:7613`
+`jump` 到后续剧情，漏出约 600 行无关内容。
+
+8.0.3 能用的钩子只有一处，而且**它不能改流程**：`config.statement_callbacks`
+（`renpy/config.py:526-528`）由 `statement_name()`（`renpy/ast.py:41-47`）在每条语句前调用，
+**只传一个名字字符串、返回值被丢弃**。所以不能靠回调"返回一个新节点"来改道。
+
+可用的取巧点：`renpy/execution.py:524` 在 `node.execute()`（:581）**之前**就把
+`self.current = node.name` 设好了，而每个节点都以名字索引在 `renpy.game.script.namemap`
+（`renpy/script.py:490`，查表用 `lookup` :908-929）。于是回调里能拿回**正在执行的那个节点**
+及其 `(filename, linenumber)`，判断它是否还在本场景范围内，越界就
+`renpy.end_replay()`（`renpy/exports.py:3556-3566` → `raise EndReplay`，
+在 `CONTROL_EXCEPTIONS` 里，`call_replay` 的 `except EndReplay` 干净接住并 restore）。
+
+```rpy
+init 10000 python:
+    def cc_bm_stop_guard(name):
+        ranges = getattr(renpy.store, "cc_bm_ranges", None)     # 见下面的坑
+        if not ranges: return
+        node = renpy.game.script.lookup(renpy.game.context().current)
+        fn, ln = getattr(node, "filename", None), getattr(node, "linenumber", None)
+        if not renpy.store.cc_bm_armed:
+            if _in(fn, ln): renpy.store.cc_bm_armed = True       # 落进本场景才开始盯
+            return
+        if not _in(fn, ln) or renpy.session["cc_bm_stmts"] > 40000:
+            renpy.session["cc_bm_stop"] = "%s:%d" % (fn, ln)
+            renpy.store.cc_bm_ranges = None
+            renpy.end_replay()
+    config.statement_callbacks.append(cc_bm_stop_guard)
+```
+
+四个必须记住的点：
+
+1. **允许范围通过 `Replay(scope={...})` 注入 store**，这样引擎退出回放时 `sb.restore()`
+   自动把它抹掉 —— 不需要自己解除武装，也不会漏进正常游玩。反过来，**跨测试/跨场景的
+   "我现在在哪个书签里"这类状态要放 `renpy.session`**，因为 store 写入会在退出时被抹掉。
+2. **`default cc_bm_ranges = None` 在 init 阶段还不存在**，而 `statement_callbacks` 在 init
+   期间就会被调用（`init python:` 本身就是一条语句）。所以回调里**必须 `getattr` 兜底**，
+   否则 `AttributeError: 'StoreModule' object has no attribute …`，游戏启动即崩。
+   这是本项目最贵的一个坑：写的时候完全看不出来。
+3. **要等"落进本场景"再武装**：`_start_replay` 在跳到目标之前会先跑引擎自己的语句，
+   一上来就盯会在第一条就 end_replay。
+4. **加一条语句计数熔断**（本项目 40000）：范围写错时最坏结果应该是"这场提前结束"，
+   而不是"把整局游戏在书签里跑完"。
+
+已知误杀形态：**合法的场景内绕行**会跳出区间。实证 `e8_hotel_with_diane` 在 7055 的 menu
+分叉到 7062 / 7715，两个目标都在它自己的 `[6728,7062)` 之外。
+对策：书签打在**分支 label** 上，或让规则文件支持 `extend` 白名单；
+扫描器要把 `escapes`（区间外跳转）报出来，不许静默。
+
+### 17.4 自动选那条：唯一切点是 store 里的 `menu` 名字
+
+链路：`ast.Menu.execute`（`renpy/ast.py:1903`）→ `renpy.exports.menu`（`exports.py:916`）
+→ `exports.py:1010` 处 **`rv = renpy.store.menu(new_items)`** —— 它在调用时才解析 store 名字，
+store 绑定见 `renpy/defaultstore.py:357`。所以：
+
+- ✅ patch `renpy.store.menu`：唯一有效切点。
+- ❌ patch `renpy.exports.display_menu`：**无效**，名字已经绑定了。
+- `init 10000` 的 patch 能活过 `clean_stores()`（干净基线在 init 全部跑完后才拍，
+  `renpy/main.py:619`）。
+
+选中之后不要自己伪造返回值，用引擎自己的自动选择通路
+`renpy.ui.pausebehavior(0.4, value)`（先例 `exports.py:1150-1153`，
+`PauseBehavior.event()` 返回 `self.result`，见 `renpy/display/behavior.py:505-543`），
+它成为这次 `renpy.ui.interact` 的返回值 —— chosen 标记、`log("Player chose:")` 全部保留。
+
+**`renpy.display_menu(..., interact=False)` 不能用来自动选**：它返回 `None`
+（`exports.py:1248`），`Menu.execute` 拿到 `None` 会 `next_node(self.next)` **静默跳过选择**。
+§16.6 用它只是"渲染真实选择屏截图"，那个用途仍然成立，别混用。
+
+**判不出方向时不要猜**：直接落回 `_cc_bm_real_menu(items)` 把真菜单弹给玩家
+（用户口径"停下来问我"）。这条要测：把开关关掉跑一遍，断言自动选**没有**发生。
+
+picks（每个 menu 该选第几项）离线算，运行时按 `文件:行号` 查 ——
+**不要去匹配选项字符串**，因为双语覆盖层已经把 caption 变成"中文\n英文"了。
+推导方法：对规则文件里每一对 `she_leads` / `he_leads`，找一个它的两个选项分别跳到这两个
+label 的 menu，取跳向 `she_leads` 的那个下标。找不到就进 review，不猜。
+
+### 17.5 判定纪律：内容优先于名字，且文本边界要自己验
+
+- **label 名会骗人。** 本项目的 BJJ 分岔里，`mc_on_top_triangle` 实际是女压男，
+  名字中性的 `n_on_top_triangle` 反而是男压女。判反一次就会把整条书签排错，
+  还会把自动选指到相反分支。规则文件里专门放一个 `content_over_name` 字段记这种反例。
+- **不要用成就名/画廊 id 判定。** 它们是发行商的 sanitized 标签
+  （`ach_e7_save_becky = "Save Becky from a kidnapper."`），一条 dom/sub 都没有，
+  只能当旁证。
+- **区分"剧情上的男性无力"和"D/s"**：绑架、被捕、越狱、被下药全部要排除，
+  否则清单会被灌水。
+- **纯选择节点**（整个 label 只到 menu 为止）算 `unsure` 进列表，不要直接丢。
+- **切给判定 agent 的场景文本必须按"全部 label"划边界**。本项目第一版按"全部候选"划，
+  于是一条场景的文本越界吃到后面好几个 label 并被腰斩，两个 agent 独立报
+  "文本不完整/越界"，那一批判定全部作废重跑。判据：切完打一行每场景尾行，
+  看是不是停在自己的边界上。
+- 判定 agent 的契约照抄 §8.1（恰好三次调用、回复一行），但**规则文件里要留
+  `note` 字段**，否则"换向点在哪一句"这种信息没地方放，agent 会挤进 `reason`。
+  `reversed_midway` 要写 JSON 布尔，写成字符串 `"false"` 在下游是真值。
+
+### 17.6 验证：三个对照测试，一个都不能省
+
+合成鼠标点击送不进 SDL（§9.3），所以**在探针里直接调 `Replay` 那个 action 对象**，
+或调书签自己的 `cc_bm_open(entry)`：
+
+1. **极小范围**：给一个 `[line, line+2)` 的假范围 → 断言 `session["cc_bm_stop"]` 落在
+   紧接着的那一行（证明闸会停），并且退出后 `ranges is None`、`armed is False`
+   （证明引擎自动解除武装，不会漏进正常游玩）。
+2. **真实范围**：挑一条**不含 menu** 的场景（含 menu 的会停下来等点击，探针就挂住）→
+   断言 stop 正好落在 `range_end`（证明不早停也不晚停），并断言进/出前后 store 变量一致。
+3. **自动选开关联动**：自动开 → 断言 `session["cc_bm_autopick"] == "<menu 位置> -> #N"`
+   且随后停在跳入的下条场景起点；自动关 → 断言 `cc_bm_autopick` 为 `None`（菜单留给了玩家）。
+
+UI 截图必须走**真实路径** `ShowMenu("…")()`。`renpy.show_screen(...)` 会让
+`get_screen()` 返回真但画面根本没渲染出来（本项目实测截到全黑/主菜单），
+是 §9.0 那类假通过的又一个变体。`ShowMenu` 会阻塞在交互里 —— 这正好：
+阻塞期间 periodic 回调仍然跑，在回调里 `renpy.screenshot()` 就是真画面。
+
+**探针会污染 persistent**：项目里 `persistent.cc_bm_auto = False` 这类写入会随
+`renpy.quit(save=True)` 存下来，下一轮测试的初始状态就被改了（本项目因此把"自动开"的
+测试跑成了"自动关"）。测试脚本要**显式设定**它依赖的每个开关，并在结尾复原。
+
+### 17.7 这一轮踩到的其它坑
+
+- **parse 错误看 `log.txt`，不是 `traceback.txt`**。screen 语言里写 `… \` 续行会报
+  `expected a keyword argument, colon, or end of line`，只进 log.txt 并弹错误框；
+  只查 traceback.txt 的自检会**假通过**（本项目就这么被骗过一次，"boots clean"是假的）。
+- **`<exe> --lint` 能在不开窗口的情况下抓出 parse 错误**，比"启动 + 查文件"快且准，
+  适合每轮改完 `.rpy` 就跑。
+- **`[f()]` 插值在 8.0.3 不支持**：Ren'Py 把 `[...]` 当名字/下标查，
+  报 `NameError: Name 'cc_bm_auto_label()' is not defined`。要么先算好字符串再
+  `("%s" % value)` 拼，要么 `[dict['key']]` 这种简单取值。
+- **`Menu.items` 的第二项是条件字符串，不是分支块**（实测 `('Dominant.', 'True')`），
+  选项体靠 `next` 链平铺在语句表里。所以从 AST 往下找 jump 一定找不到，
+  推 picks 要回去读 `.rpy` 文本。
+- 改完 `.rpy` 后 lint 仍报同一行的话，先删掉它的 `.rpyc` 再看（陈旧字节码会骗人）。
+
+### 17.8 发布边界
+
+`bookmark_rules.json` 的**实例**含剧透（label 名、场景内容摘要、逐字证据），算衍生内容：
+公开仓只放 `localization/bookmark_rules.template.json`；实例与 `scenes.json` /
+`bookmark_groups/` / `verdicts_*.json` / `bookmark_titles.json` / `bookmark_review.txt`
+一律 gitignore，和 `en-zh.json` 同级处理。`game/cc_bookmarks.rpy` 与
+`game/cc_bookmark_data.rpy` 是**产物**，也不进公开仓。

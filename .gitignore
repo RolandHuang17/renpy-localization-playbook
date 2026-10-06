@@ -7,3 +7,4 @@ game/
 *.rpa
 *.rpyc
 !localization/route_rules.template.json
+!localization/bookmark_rules.template.json

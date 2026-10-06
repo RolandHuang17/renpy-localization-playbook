@@ -1,0 +1,59 @@
+{
+  "$doc": "路线书签规则模板。复制成 localization/bookmark_rules.json 后按项目填写。实例含剧透（label 名、场景内容摘要），属衍生内容，**不要提交回公开仓**。填完先跑 tools/scan_bookmarks.py --dump-candidates 出候选，再跑 tools/build_bookmarks.py 看 bookmark_review.txt，把没推导出来的条目人工补齐。",
+  "route": "<路线名，例：female-dominant / male-submissive>",
+  "definition": [
+    "<这一条最重要：用一句可判定的话说明'什么算这条路线'，不要写氛围词。例：权力与性快感的控制权在谁手里。>",
+    "<收：明确属于本路线的情形，逐条列。>",
+    "<收（桥段级）：没有性互动但权力关系成立的桥段要不要收。用户 2026-10-06 的默认口径是要收，例：命令/拒绝/惩罚/谈判压制。>",
+    "<互换场景：同一场景内攻守互换的怎么处理。默认口径是两个方向都收，并在 note 写明从哪一句开始换。>",
+    "<不收：必须显式列出反例类别。用户明确排除过的类别：绑架、被捕、越狱、被下药、受伤失能——这些是犯罪/动作剧情，角色虽然无力但不是 D/s 关系。>",
+    "<不收：单纯性格强势、说话直接、职业身份而没有实际支配互动的场景。>",
+    "<不收：与某条本路线场景成对的相反分支。>"
+  ],
+  "verdict_scale": {
+    "yes": "<证据充分，进书签>",
+    "unsure": "<判不清，进书签但标待确认；**纯选择节点**（整个 label 只到 menu 为止、方向未定）也算 unsure，不要直接丢>",
+    "no": "<不属于本路线>"
+  },
+  "output_schema": {
+    "$doc": "每个 label 一条，键就是 label。evidence 必须是从候选 text 里逐字抄来的短句（≤25 词，保持原语言），不许改写、不许翻译——否则无法回查。",
+    "<label>": {
+      "verdict": "yes|unsure|no",
+      "who_leads": "female|male|switches|none",
+      "kind": ["<可多值>", "sex|denial|bondage|grappling|command|punishment|service|none"],
+      "reversed_midway": "true|false（JSON 布尔，不要用字符串，'false' 在下游是真值）",
+      "reason": "一句话，中文",
+      "note": "可选：换向点、文本不完整、需要人确认的点",
+      "evidence": ["逐字短句", "逐字短句"]
+    }
+  },
+  "content_over_name": {
+    "$doc": "实测教训：**label 名会骗人，必须按内容判。** Carnal Contract 的 BJJ 分岔里，名字带 mc_on_top 的那条实际是女压男，名字中性的 n_on_top_triangle 反而是男压女；判反一次就会把整条书签排错、还会把自动选指到相反分支。",
+    "example": "<写下本项目里那个骗人的命名对，供下一个项目对照>"
+  },
+  "paired_branches": [
+    {
+      "$why": "<成对分支是本功能最可靠的信号来源：一个 menu 跳到两个 label，玩家在这里选方向。列出 she_leads/he_leads 后 build_bookmarks 会自己找到那个 menu 并记下该选第几项。>",
+      "$how": "<先按内容确认方向，再填；不要照 label 名填。>",
+      "she_leads": "<label>",
+      "he_leads": "<label>"
+    }
+  ],
+  "lexicon": {
+    "include": "<缩小候选用的 label 名词表正则；只做初筛，最终判定看内容>",
+    "exclude": "<初筛就排除的词，例：kidnap|arrest|escape|police|rescue>",
+    "$note": "宁多勿漏：初筛宽一点，让内容判定去收。min_chars 太低会把纯过场也拉进来。"
+  },
+  "stop_guard": {
+    "$doc": "停车闸允许范围 = label 自身节点区间 [line, range_end)。若某条场景合法地跳到区间外的辅助 label，把那些 label 加进 extend，否则会被误停在半路。",
+    "extend": { "<场景label>": ["<合法绕到的辅助label>"] },
+    "$how_to_find": "tools/scan_bookmarks.py 的 escapes 字段就是'区间外跳转'清单；实机验证时看 renpy.session['cc_bm_stop'] 落在哪一行。"
+  },
+  "ui": {
+    "title_zh": "<菜单标题>",
+    "hotkey": "ctrl_noshift_K_<键>",
+    "persistent_prefix": "<项目缩写>_bm_",
+    "font": "<带 CJK 字形的字体路径，菜单标签必须包 {font=}>",
+    "$doc": "hotkey 必须用引擎符号名（<修饰键>_<shift态>_K_<键>），写 ctrl_x 会静默失效。"
+  }
+}
