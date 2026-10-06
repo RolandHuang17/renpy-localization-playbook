@@ -131,6 +131,10 @@ def main():
     ap.add_argument("--table", default="localization/en-zh.json")
     ap.add_argument("--kinds", default="say")
     ap.add_argument("--report", default="localization/precedence_report.txt")
+    ap.add_argument("--exclude", default="",
+                    help="comma list of substrings; scripts matching are NOT counted "
+                         "(use it for a third-party mod's own UI files -- cheat panels and "
+                         "hand-written gallery screens are UI text, and section 0.5 says UI stays English)")
     args = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -144,6 +148,11 @@ def main():
     print("table %s strings: %d" % (",".join(sorted(kinds)), len(table)))
 
     win, shadowed = winners(args.game)
+    excl = [e.strip() for e in args.exclude.split(",") if e.strip()]
+    if excl:
+        before = len(win)
+        win = {k: v for k, v in win.items() if not any(e in k for e in excl)}
+        print("excluded by --exclude: %d scripts" % (before - len(win)))
     per_source = collections.Counter(
         (os.path.basename(win[n][0]) if win[n][0] != DISK else DISK) for n in win)
     by_ext = collections.Counter(n[-5:] for n in win)
