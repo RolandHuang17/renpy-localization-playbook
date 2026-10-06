@@ -18,6 +18,13 @@ import os
 import sys
 
 base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if "-h" in sys.argv or "--help" in sys.argv:
+    # The tools/*.py --help sweep (playbook 14 step 0) runs every tool this way; without
+    # this guard the script tries to open a file literally named "--help" and the sweep
+    # reports a permanent false failure.
+    print("usage: python tools/make_selftest.py <en-zh.json> [mix|long|tags|all]")
+    raise SystemExit(0)
+
 src = os.path.join(base, sys.argv[1] if len(sys.argv) > 1 else "localization/smoke.json")
 mode = sys.argv[2] if len(sys.argv) > 2 else ""
 

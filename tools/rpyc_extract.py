@@ -13,10 +13,6 @@ Usage:
     python tools/rpyc_extract.py --game game --out localization/en-zh.json
 """
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
 import argparse
 import collections
 import json
@@ -27,6 +23,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rpautil as R
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 SAY_TYPES = ("renpy.ast.Say", "renpy.ast.TranslateSay")
 MENU_TYPES = ("renpy.ast.Menu",)
 CODE_TYPES = ("renpy.ast.Define", "renpy.ast.Default", "renpy.ast.Python",

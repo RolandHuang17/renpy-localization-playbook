@@ -3,6 +3,11 @@
 给 **Ren'Py 官方发行的 PC/zip 版游戏**（无源码）做"中英双语对白"的可复制流程与工具集。
 所有产物都是**新增文件**，靠 Ren'Py 的加载优先级生效，因此卸载 = 删文件，原文件零修改、存档兼容不破。
 
+**优先级：时间 > token。** 仓库主人 2026-10-06 写死的口径是"我不缺 token，我缺时间"——
+所以默认按**墙钟最短**决策：一次切满、并发拉满（上限 20）、该跑的游戏内实跑截图一次都别省、
+风格闸门全表跑。不要拿 token 预算当理由砍质量动作或劝退需求；要用户拍板的只有**范围**
+（译不译菜单、动不动对白框几何），不是成本。详见手册 §0.6。
+
 **唯一入口是 [`RENPY_LOCALIZATION_PLAYBOOK.md`](RENPY_LOCALIZATION_PLAYBOOK.md)。**
 §0.5 是默认需求口径，§14 是照抄即可的命令序列，§15 是用来估工时和判断异常的实测基线，其余章节是依据和踩过的坑。
 
@@ -42,6 +47,31 @@ python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文�
 
 只依赖标准库 + 本机 Python 3，不需要装任何包。
 
+**拷完工具先跑一遍 `--help` 扫描**，把"模块顶层就能炸"的问题在开工前一次暴露：
+
+```bash
+for f in tools/*.py; do python "$f" --help >/dev/null 2>&1 || echo "FAIL $f"; done
+```
+
+这一轮就是靠它发现 `rpyc_extract.py` 和 `repair_json.py` 在 `import sys` 之前用了
+`sys.stdout`（`NameError`，一跑就死）——它们上一次沉淀后从没被执行过。
+
+## 顺手解锁图鉴 / CG / 动画回看
+
+汉化任务常带的附加需求："不玩游戏也要能直接看 Extra 里的 CG 和动画"。
+**先 grep 门控表达式，别急着填 `persistent`**——很多发行版留了自己没接上的总开关：
+
+```bash
+grep -rho "if .\{0,160\}" game/scripts/gallery/*.rpy | grep -E "persistent|UNLOCKED|BONUS"
+grep -rn EXTRAS_GALLERY_UNLOCKED game --include=*.rpy      # 只有 default 一处 = 死开关
+```
+
+Carnal Contract 的 163 + 30 处门控全是 `... and BONUS_CODE_SEASSON_1 == 1 or EXTRAS_GALLERY_UNLOCKED == 1:`，
+而 Python 的 `A and B or C` == `(A and B) or C`，所以**置 1 即全解锁**：一个新增 `.rpy`、
+不写 `persistent`、不列 196 个 id、不动存档，删文件即还原。验证要断言**整个门控表达式**
+（`first=False` 且 `whole=True` 才说明是靠我们的开关打开的）+ 一张真截图，不是只看 flag。
+详见手册 §11.1（含 `config.load_callbacks` 在 8.0.3 不存在、写错会启动即崩这条坑）。
+
 ## 工具清单
 
 | 文件 | 职责 |
@@ -52,6 +82,7 @@ python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文�
 | `rpyc_extract.py` | 模式 B 但游戏带 `.rpyc` 时的抽取器：反序列化引擎真正加载的 AST 取 `Say.what` / `Menu` 标题（`old` 与引擎查表的字节完全一致），`--reuse` 按 identifier 连自带官方译文。`Character` 显示名回落到读 `.rpy`——8.1.2 的 AST 里源码只剩位置 |
 | `textbox_fit.py` | 双语行数的量化决策：读 `gui.rpy` 的宽高与字号，从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size`（§5.2 第 1-2 步的数据来源） |
 | `repair_json.py` | 回收侧机械修复 agent 手写的 JSON（key 丢开引号、值里有未转义引号）；修完必须与 group 的 id 集合完全对齐才写回，否则退回重派 |
+| `style_audit.py` | **跨批次风格闸门**（手册 §10.5）：20 个 agent 并行必然在括号全/半角、`...`→`……`、`--` 与 `——`、`{b}Diane's{/b}` 英文所有格残渣、`{b}` 里没译的强调词上分叉，而 `align_check` 只管错位和漏译、抓不到这些。`--apply` 只做机械项（并先备份真源 JSON），判不出来的一律只报告 |
 | `make_selftest.py` + `selftest_template.rpy` | §9.0 的游戏内自检 harness：探针从真源 JSON 生成，走真实 say 屏幕，自动写 `translate_string` 命中报告 + 12 张截图 |
 | `tl_reuse.py` | 模式 B+ 复用官方译文：解析明文 `translate <lang>` 块，按内容配对（含说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对） |
 | `denames.py` | 复用官方译文时，把音译人名还原成原文；`--seed` 可喂已知名字表出候选（**只出候选，别直接 `--apply`**，放宽闸门会抓出同句共现词） |
@@ -88,5 +119,6 @@ python tools/uninstall.py --dry-run  # 必须恰好列出你新增的每个文�
 ## 已验证项目
 
 Sunset Rose 0.3（A，无官方译文，3,966 条）、Midnight Paradise 1.1（A，复用官方中文 53,762 / 59,201 条）、
-The Tutor 1.0（B，323 条）、By Justice or Mercy v25（B+，18,164 条对白复用 18,544 条唯一串，真缺口 64 条）、Milfylicious 2 0.37（B 带 `.rpyc`，8.1.2，**20,543 条全量自译**）。
-引擎 8.5.3 / 8.5.2 / 8.4.2 / 8.3.7。工时与异常红线见手册 §15。
+The Tutor 1.0（B，323 条）、By Justice or Mercy v25（B+，18,164 条对白复用 18,544 条唯一串，真缺口 64 条）、Milfylicious 2 0.37（B 带 `.rpyc`，8.1.2，**20,543 条全量自译**）、
+Carnal Contract Season One（B 带 `.rpyc`，**8.0.3**，13,090 条全量自译 + 图鉴/动画解锁 + `style_audit` 闸门）。  
+引擎 8.5.3 / 8.5.2 / 8.4.2 / 8.3.7 / 8.1.2 / 8.0.3。工时与异常红线见手册 §15。

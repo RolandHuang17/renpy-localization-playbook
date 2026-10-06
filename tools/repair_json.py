@@ -12,16 +12,15 @@ Usage:
     python tools/repair_json.py --in localization/out_13.json --group localization/groups/group_13.json
 """
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
 import argparse
 import json
 import os
 import re
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 LINE = re.compile(r'^\s*"(?P<key>[^"\s]+)"\s*:\s*(?P<val>.+?)\s*,?\s*$')
 BARE_KEY = re.compile(r'^\s*(?P<key>[A-Za-z]\w*)"\s*:\s*(?P<val>.+?)\s*,?\s*$')
 
@@ -73,14 +72,19 @@ def main():
     args = ap.parse_args()
 
     text = open(args.src, encoding="utf-8-sig").read()
+    clean = None
     try:
-        json.loads(text)
+        clean = json.loads(text)
         print("%s: already valid JSON" % args.src)
-        return 0
     except Exception as exc:
-        print("%s: %s" % (args.src, exc))
+        print("%s: %s -> repairing line by line" % (args.src, exc))
 
-    data, bad = repair(text)
+    if isinstance(clean, dict):
+        # A syntactically valid shard can still be missing keys or carry extras, so the
+        # alignment check below has to run on this path too (it used to be skipped).
+        data, bad = clean, []
+    else:
+        data, bad = repair(text)
     want = []
     if args.group and os.path.isfile(args.group):
         want = [r["id"] for r in json.load(open(args.group, encoding="utf-8"))]
@@ -97,6 +101,9 @@ def main():
     if missing or bad or extra or empty:
         print("NOT WRITTEN - needs a re-dispatch or a manual look")
         return 1
+    if isinstance(clean, dict):
+        print("aligned with %s, nothing to repair" % (args.group or "the group"))
+        return 0
 
     os.rename(args.src, args.src + args.backup)
     with open(args.src, "w", encoding="utf-8") as f:

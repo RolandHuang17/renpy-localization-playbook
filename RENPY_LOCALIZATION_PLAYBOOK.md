@@ -1,10 +1,15 @@
 # Ren'Py 发行版汉化 / 本地化施工手册
 
 > 面向执行者（人或编码 agent）的可复制流程。适用于 **Ren'Py 官方发行的 PC/zip 版游戏**（含打包脚本、无源码）。
-> **默认需求全在 §0.5**——只丢这份 md 时那 7 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
+> **默认需求全在 §0.5，优先级口径（时间 > token）在 §0.6**——只丢这份 md 时那 9 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
 > 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--text-size`、§5.2 的"对白框几何不许动"这条口径，与 §9.0 的探针方法学；最新的 Milfylicious 2 0.37（2026-10-06，**20,543 条对白 / 162 万字符，散文本但带 `.rpyc`、无官方中文**）补上了 §0 的 AST 抽取分支、§14.1 的分阶段派工，以及 §8 的子 agent 跑偏判据。
-> 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7 / 8.1.2** 上都验证过；标注版本相关的条目换版本需复验。
-> 配套工具集（15 个纯标准库 Python 文件 + 1 个自检 harness 模板，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）、By Justice or Mercy（散文本 + 自带明文官方译文型）与 Milfylicious 2（散文本 + 自带 `.rpyc`、无官方中文、全量自译型）四个项目的 `tools/` 下。
+> 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7 / 8.1.2 / 8.0.3** 上都验证过；标注版本相关的条目换版本需复验。
+> 配套工具集（16 个纯标准库 Python 文件 + 1 个自检 harness 模板，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）、By Justice or Mercy（散文本 + 自带明文官方译文型）、Milfylicious 2（散文本 + 自带 `.rpyc`、无官方中文、全量自译型）与 Carnal Contract（散文本 + 8.0.3 + 图鉴解锁型）五个项目的 `tools/` 下。
+>
+> **2026-10-06 Carnal Contract Season One 新增**：13,090 条对白 / 48.6 万字符、引擎 **8.0.3**、无官方中文、游戏只带拉丁字体、散文本带 `.rpyc`。
+> 这一轮补了 §6.4（老引擎根本没有 `config.font_name_map`）、§7.1（双语退回开关必须放 `game/`，放 `tl/<lang>/` 会自我注销）、
+> §8 的"恰好 3 次工具调用"派工契约 + 20 并发硬上限 + "别信 agent 自报的条数"、§10.5（`tools/style_audit.py`：跨批次风格闸门）、
+> §11.1（**图鉴/CG 解锁：优先找开发者自己留的死开关**），以及 §15 的 8.0.3 基线。
 
 ---
 
@@ -25,6 +30,29 @@
 8. **对白框的几何属于游戏设计，不许为了容纳双语去动它**（不高、不移、不改 `ysize`/`ypos`）。
    塞不下时的唯一手段是**降字号，最多降 1~2 号**（中英共用一个 `say_dialogue` 样式，一个数就同时改两行）；
    降完还塞不下就**让它溢出**——中文行排在上面，所以"中文一定看得见"这个底线天然成立（§5.1）。
+
+## 0.6 优先级：时间 > token（用户 2026-10-06 写死的默认口径）
+
+> 原话："**我不缺 token，我缺时间。**" 以及同日的"我的 token 非常非常多，用快速的方法，不用考虑节省 token"。
+
+**默认按墙钟最短决策。不要为了省 token 做下面这些事：**
+
+- 不要把批次开小、分几轮派 —— **一次切满、并发拉满**（硬上限 20，见 §8.1）。批次尺寸的选择依据是
+  "总轮数最少"，不是"固定开销最小"。
+- 不要跳过第二轮质检、不要跳过游戏内实跑截图、不要用"简化自检"代替真代码路径（§9）。
+  多启动一次 ≈ 30 秒；少返工一次 ≈ 一小时。
+- 不要"够用就行"：风格闸门全表跑（§10.5）、agent 自报的缺陷逐条落实、漂移条目手工改写。
+- 需要用户拍板的只有**范围**（译不译菜单、动不动对白框几何、要不要剧透成就），
+  不是预算。规模再大也先报数、再按 §14 分阶段做，但**不要**把"这要花多少 token"当劝退理由。
+
+**§8.1 的"恰好三次工具调用"照旧严格执行** —— 但理由换了：一个跑偏的 agent
+（实测 14 次调用 / 297 万 token）真正贵的是**它霸占一个并发槽 5-10 分钟**，
+把本来能并行的那一组推到下一波。省 token 是次要收益，**省墙钟才是目的**。
+
+**不要因为"token 多"就扩范围**：菜单 / UI / 图鉴条目不译、人名不音译、对白框几何不动，
+这些是 §0.5 的需求口径，与预算无关。
+
+---
 
 ## 0. 先判断适用性
 
@@ -357,6 +385,24 @@ style.text.language = "eastasian"   # 走 UAX#14 断行，见 renpy/text/text.py
 ```
 `"unicode"` 也可以；`"japanese-*"` 是更严的禁则。纯拉丁文本用 `eastasian` 不会变差（仍只在合法位置断行）。
 
+### 6.4 老引擎根本没有 `config.font_name_map`（8.0.3 实测，会让 `--font-mode map` 直接崩）
+
+手册原先写的"三层挂载"里，`config.font_name_map` 这一层是**新版本才有的**：
+
+| 引擎 | `config.font_name_map` | `config.font_replacement_map` |
+| --- | --- | --- |
+| 8.0.3 | **不存在**（`renpy/config.py` 里只有 `font_replacement_map`，见该文件 228 行） | 有 |
+| 8.1.2 / 8.4.2 / 8.5.2 | 有（`renpy/text/font.py`） | 有 |
+
+`renpy/config.py` 对未知属性走 `__getattr__` 并 **raise Exception('config.%s is not a known configuration variable')**，
+所以在这类老引擎上写 `config.font_name_map[...] = ...` 不是"没生效"，是 **init 阶段抛异常、游戏启动即崩**。
+症状和 §9 第 9 条一样：`traceback.txt` 新生成，游戏开不了。
+
+**取舍**：老引擎（或任何没核对过的版本）上默认用 `--font-mode tag`（只给中文行包 `{font=}`，
+完全不碰字体映射层），既避开这个坑，也保住原版拉丁字形。要上 `map` 就先
+`grep -n "font_name_map" renpy/config.py` 确认它存在，或用 `getattr` + `dict` 兜底。
+`tools/build_tl.py` 目前只在 `map` 模式下输出这些行，所以**只要选对模式就安全**。
+
 ---
 
 ## 7. 启用语言与开关
@@ -376,14 +422,37 @@ init -1000 python:
 - 全局快捷键要自己挂屏幕：`config.always_shown_screens.append(...)` + 屏幕里 `key "..." action Function(...)`。
   **组合键名不是 `ctrl_l`**，那会静默失效。两种可用写法：直接写引擎符号 `ctrl_noshift_K_l`（格式见 `renpy/common/00keymap.rpy`：`<修饰键>_<shift态>_K_<键>`），或注册 `config.keymap["动作名"] = ["ctrl_noshift_K_l"]` 后在屏幕里 `key "动作名"`（本项目用后者，真实键盘实测有效）。
   **注意测试假阴性**：自动化工具合成的 Ctrl 组合键和鼠标点击都可能送不进 SDL 窗口（普通按键如 space/方向键可以），所以"按了没反应"先怀疑输入通路，别急着判定绑定写错——交给真人按一次最省事。
+- 环境变量 `RENPY_LANGUAGE` 优先级最高
+- 环境变量 `RENPY_LANGUAGE` 优先级最高
+### 7.1 退回英文的开关**不能**放在 `game/tl/<lang>/` 里（会自我注销）
+
+覆盖层装好之后玩家就没了退路：不少发行版**自带一个语言菜单屏幕，但入口是注释掉的死 UI**
+（Carnal Contract：`game/screens.rpy:1679 screen language_select()` 存在，`screens.rpy:766-768`
+的 `ShowMenu("language_select")` 整块被注释）。这种游戏里 `known_languages()` 只有你新加的 `zh`，
+玩家唯一的退回手段是删文件——太粗。
+
+**做法**：加一个全局热键（本项目 `Ctrl+L`），翻 `persistent.<项目缩写>_bi_off` 并 `renpy.change_language()`。
+关键一条：**这个文件必须落在 `game/`，不能落在 `game/tl/<lang>/`。**
+`tl/<lang>/**.rpy` 只在**当前语言等于该语言时**才加载；把热键屏幕写进去，玩家一按"退回英文"，
+`tl/zh/` 整个不再加载，热键屏幕跟着消失，**再也切不回来**（症状：只能删文件）。
+`build_tl.py` 生成的 `00zz_bilingual.rpy` 里有 `if not persistent.xx_bi_off: preferences.language = "zh"`，
+但那段本身也在 `tl/zh/` 里，所以"启动时强制语言"这件事也要在 `game/` 的那份里再做一遍才在两种状态下都成立。
+
+组合键名的写法见上面第 7 条（`ctrl_noshift_K_l`，不是 `ctrl_l`）。
+**自动化测不了真按键**（§9 第 3 条：合成输入送不进 SDL 窗口），所以验证方式是探针里直接调那个函数，
+断言 `preferences.language` 在 `'zh'` 与 `None` 之间来回翻，再让人按一次确认键位。
+
 - 环境变量 `RENPY_LANGUAGE` 优先级最高（`00start.rpy` 的 `_init_language`），可做零逻辑的启动脚本开关。
 - 提前设 `default_language` 还有额外收益：游戏在 `init` 阶段用 `_()` 求值的 `define` 数据（目标标题、事件描述）也会跟着翻译。
 
 ---
 
+---
+
 ## 8. 批量翻译的工程做法
 
-- **批次要大**（本项目每组 ~420 条），小批次的固定开销会把 token 吃掉一个数量级：7 条的批次实测 30 万 token，420 条的批次 25–77 万。Midnight Paradise 缺口 5,439 条切成 13 组（每组 ≤430 条 / ≤27,000 字符），单组实测 23 万–155 万 token、3.5–7.5 分钟，**13 组后台并发一次跑完**。
+- **批次要大，大到"一轮装得下全量"**（本项目每组 ~420 条；Carnal Contract 用 550 条 × 22 组，
+  正好塞满 20 个并发槽 + 一波尾巴）。判据是**总轮数最少**（见 §0.6），不是单组最省钱：7 条的批次实测 30 万 token，420 条的批次 25–77 万。Midnight Paradise 缺口 5,439 条切成 13 组（每组 ≤430 条 / ≤27,000 字符），单组实测 23 万–155 万 token、3.5–7.5 分钟，**13 组后台并发一次跑完**。
 - **并发用后台 agent**（`run_in_background`），主线程同时做去音译、QA、构建，不空等。
 - **跑偏判据看 `tool_uses`，不看条数**：正常一组（~500 条 / 4 万字符）是 **3-4 次工具调用**（读 glossary、读 group、写 out、结束）。Milfylicious 2 的 35 组里有 3 组跑到 14/22/33 次，token 分别 260 万 / 370 万 / 630 万，而正常组只要 30-60 万——**这 3 组吃掉了全程约六成的量**。它们产出上没有任何差异（回收后同样 0 缺失），纯粹是反复读回、分片写、自我校验。所以：把"一次 Write 写完"写成 prompt 里的硬约束，回收后按 `tool_uses` 反查异常组。
 - **执行契约写进 glossary，不写进 prompt**：35 个 agent 共用一份 `localization/glossary.md`，prompt 只留 6 行（读哪两个文件、写哪一个、别自检）。契约放在共享文件里既省重复，也让"输出格式"这件事只有一个真源。
@@ -394,6 +463,40 @@ init -1000 python:
 - **人名/专有名词按需求写死**：本项目的规则是"人名一律保持英文原样、不音译"，术语表里要给出正反例（`我和 Kyle 约好了` ✅ / `我和凯尔约好了` ❌），并说明亲属称谓例外（Mom→妈妈）。
 - 回收侧的校验器要能容忍"合法的非译文"：纯拟声、纯人名行（`Isabel?! Connor?!`）译完仍不含 CJK，`no-cjk` 判定要先看原文有没有可译的词，否则会误退一批（本项目首跑退了 2 条，都是这种）。
 - 进度用"真源 JSON 里 zh 非空计数"记账，天然可断点续跑（生成器只输出已译条目，未译自动保持原文）。
+
+### 8.1 派工 prompt 的"恰好三次调用"写法（2026-10-06 实测，把跑偏率从 2/4 降到 0/22）
+
+> 按 §0.6 理解这一节：约束 agent 是为了**缩短墙钟**（跑偏组霸占并发槽），不是为了省 token。
+
+上一轮的经验是"prompt 里写死禁止自检"。Carnal Contract 阶段 1 用普通措辞派 4 组，
+**两组跑偏**（17 与 12 次工具调用，170 万 / 164 万 token，正常是 3-5 次 / 30-60 万）。
+把 prompt 改成"你恰好有三次工具调用，然后停"这种**明示预算**的写法后，22 组里 21 组落在 3-6 次。
+
+有效的措辞（按重要性排序）：
+
+1. **`You get exactly THREE tool calls, in this order, then you stop: 1. Read glossary 2. Read group 3. Write out`**
+   —— 把预算写成数字而不是一句"别自检"。
+2. **`do NOT edit the file after writing it`** —— 跑偏的主因是"写完发现 JSON 坏了要回头修"。
+3. **`do NOT re-read anything, do NOT read en-zh.json, do NOT split the output across multiple Write calls`**。
+4. **回复格式限死**：`Reply with one line: the number of keys you wrote`，
+   再给一条上限 `at most 3 more lines if you had to invent a rule the glossary lacks`。
+   这样既拿到术语表空缺（下一轮要补进 glossary），又不让它写小作文。
+   上一版写的是"report any judgment calls"，结果每组回 8-13 条，主线读回来也是开销。
+
+**JSON 引号是这一轮最贵的单一失败模式。** 22 组里至少 6 组发出过非法 JSON（值内部裸 `"`、key 少开引号），
+被迫多花 1-11 次工具调用回修，其中一组因此烧到 297 万 token。
+治法两条：① 把"**值内部绝对不要出现英文双引号**，要引用就用中文引号"写进 **glossary 的执行契约段**（不是 prompt）；
+② `tools/repair_json.py` 兜语法，但它**必须**同时校验 key 集合（见 §10.4 的修复）。
+
+**别信 agent 自报的条数。** 有 3 组报"555 keys"（组文件只有 550 条），实际文件里是 550/550 对齐的；
+也有组报"已完成"但少 1 条。回收侧一律用 `repair_json.py --in out_NN.json --group group_NN.json`
+量一遍 missing/extra/empty，**以文件为准**。
+
+**并发硬上限：20 个子 agent（2026-10-06 实测）。** 一条消息里派 22 个，第 21、22 个直接返回
+`Error: Concurrent subagent limit reached. You can run 20 subagents at once. Do not retry.`
+—— **不排队、不重试、不报错给后续**，很容易当成"已经在跑"而漏掉两组译文。
+所以：分片数 >20 时先派 20 个，剩下的一收到完成通知就补派，并在心里记"已派 N / 总 M"。
+上限由 `QODERCN_CLI_MAX_CONCURRENT_SUBAGENTS` 控制（改它属于用户环境，要先问）。
 
 ### 8.5 小语料不要派 agent；以及"错位"是唯一抓不到的错
 
@@ -469,6 +572,15 @@ init -1000 python:
    - **`default persistent.x = ...` 只在游戏上下文里生效**（如 By Justice or Mercy 的 `screens.rpy:1127 default persistent.color = True`，
      而 `screen say` 就是靠它挑窗口样式/背景的）。在主菜单里做探针会走到"两个分支都不成立"的畸形渲染。
      所以布局探针必须先 `_X.jump_out_of_context("zz_selftest")` 进真实上下文，再在自己的 label 里渲染。
+   **探针自己的状态要放 `renpy.session`，不要放 store 里的 dict**（8.0.3 复踩）：
+   `jump_out_of_context()` 会开新 context，store 被重置回 init 快照，存在 store 里的
+   `state["phase"]` 计数器直接归零，症状是"跳转之后探针就不动了"。
+   `renpy.session.setdefault("zz", {...})` 不受 store 重置影响，跨 context 可靠。
+   **截图时机必须卡在 `renpy.get_screen("main_menu")` 为真之后**：本作 `label splashscreen`
+   是 11s + 5s + 1s 三段 `renpy.pause(hard=True)`，按固定 tick 数走会正好在过场里跳转，
+   于是 `JumpOutException` 冒出 `run_context` 写 traceback（就是上面第 2 条的限定条件）。
+   另外 `renpy.show_screen("menu_gallery")` 在 splashscreen 期间调会**静默无事发生**，
+   截图抓到过场动画，看起来像"图鉴是黑的"——这也是要卡主菜单的第二个理由。
 1. **`RENPY_AUTO_LOAD=<存档名>` 环境变量**：启动即载入存档，直接进真实游戏界面。最有用的一招（前提是 `game/saves/` 里有存档；全新发行包通常没有）。
 > **启动方式会影响结论**：`setsid ./Game.exe &` 起的 Ren'Py 拿不到前台，`config.periodic_callbacks` 不再触发（harness 什么都不写，容易被误判成"代码没生效"）；直接 `./Game.exe > /dev/null 2>&1 &` 留在同一个 shell 里就正常。另外别把"生成 harness + 清报告 + 启动"整条链一起后台化，那会让轮询读到上一轮的旧报告——**生成和清理放前台，只后台化启动那一步**。
 2. **没有存档时怎么进剧情**：在 periodic 回调里执行 `renpy.jump_out_of_context("start")` —— 它 raise 的 `JumpOutException` 会冒泡到主菜单 context 的主循环并被正确处理，**等价于点 START**，且不像 `renpy.jump()` 那样跳过 store 初始化（见第 4 条）。实测能稳定进入 prologue 对白。
@@ -490,6 +602,40 @@ init -1000 python:
 
 ---
 
+### 10.4 `repair_json.py` 在"语法合法"这条路上原本会跳过 key 集合校验
+
+老版本 `main()` 第一件事是 `json.loads(text)`，成功就 `print("already valid JSON"); return 0`。
+于是**一份语法正确但少了 40 条的分片会静默通过**，缺口一路带到 `build_tl`（那里只输出已译条目，
+少的那 40 条就永远是英文）。现在两条路径都会跑 `missing / extra / empty` 校验，
+只有"语法合法且对齐"才 return 0。回收侧一律带上 `--group`，别偷懒不传。
+
+### 10.5 跨批次风格漂移：`tools/style_audit.py`（20 组并发必然出现，`align_check` 抓不到）
+
+`align_check.py` 管两件事：专名错位、中文里残留小写英文词。它**不管风格**，
+而 20 个 agent 并行必然在风格上分叉——本项目阶段 1 只有 4 组就已经分叉：
+
+| 漂移点 | 实测规模 | 能不能机械修 |
+| --- | --- | --- |
+| 括号独白 `(...)` 用半角还是全角 `（）` | 317 条 | ✅ 机械（标签/插值外的 `(`→`（`） |
+| `...` 译成 `……` 还是 `…`（源文两种都有，术语表要钉死） | 47 条 | ✅ 单向（只把孤立 `…` 升成 `……`，反向不改，因为 `……` 也是正常中文） |
+| 打断号 `--` 被改成 `——` | 少量 | ✅ 机械 |
+| `{b}Diane's{/b}` 里英文所有格残渣 | 84 条 | ✅ 机械（只删 `'s`，标签字节不动） |
+| `{b}WERE{/b}` `{b}NOW{/b}` 这类**强调词没译** | 35 条 | ❌ 要人/模型逐条改 |
+| `daddy` 被译成 `爸爸`（和本作的 `Dad→爸爸` 撞车） | 2 条 | ❌ 逐条 |
+
+**关键收获：要守恒的是标签本身（`{b}`/`{/b}`/`{color=…}` 的数量与顺序），不是标签里的英文字节。**
+手册原来把"标签逐字节照抄"写得太宽，导致有 agent 把 `{b}Diane's{/b}` 整个照抄进中文行。
+正确口径分三类：① 人名和 `[插值]` 保留原文；② 所有格丢掉 `'s`、把"的"写中文；
+③ 普通强调词（`{b}CAN{/b}`、`{b}WAIT{/b}`）**要译**，标签照留。
+`apply_trans.py` 的标签多重集检查对这三类都放行，所以它是真闸门而不是"禁止改字节"。
+
+`--apply` 只做机械项，并先把真源 JSON 备份成 `en-zh.before_style.json`；
+判不出来的一律只报告。误报要当场处理掉（本项目 `{b}Cass{/b}` 曾被所有格正则当成 `Ca+'s`，
+`Minotaur→弥诺陶洛斯` 曾被专名检查当成漏译）——**报告里剩下的每一条都要有结论**，否则下一个人不敢信它。
+
+**顺序**：`apply_trans` → `style_audit --apply` → 手工修剩下的 → `build_tl` → `qa` → `align_check`。
+放在 `build_tl` 之前，因为生成器只认 JSON。
+
 ## 11. 回滚与可逆性
 
 - 全部产物是新增文件：`game/tl/<lang>/**`、一个挂载用 `.rpy`、一个字体。卸载 = 删这几样。
@@ -497,6 +643,74 @@ init -1000 python:
 - 永远不改：`*.rpa`、`renpy/`、`game/saves/`。
 
 ---
+
+### 11.1 顺手解锁图鉴 / CG / 动画回看：先找开发者自己留的死开关
+
+汉化任务里常带的附加需求："不玩游戏也要能直接看 Extra 里的 CG 和动画"。
+这是**同一套可逆覆盖层**的活儿，不要改原文件，也不要写 persistent。
+
+**第一步永远是 grep 门控表达式本身**，而不是猜存档字段：
+
+```bash
+grep -rho "if .\{0,160\}" game/scripts/gallery/*.rpy | grep -E "persistent|UNLOCKED|BONUS"   | sed -E 's/EP[0-9_A-Za-z]+/EP_ID/g' | sort | uniq -c | sort -rn
+```
+
+Carnal Contract 的结果是 163 + 30 处全部长同一个形状：
+
+```rpy
+if EP01_BECKY_e1i341 in persistent.gallery["Becky"] and BONUS_CODE_SEASSON_1 == 1 or EXTRAS_GALLERY_UNLOCKED == 1:
+```
+
+注意 Python 的优先级：`A and B or C` == `(A and B) or C`。所以 **`C` 单独成立就全解锁**，
+而 `EXTRAS_GALLERY_UNLOCKED` / `EXTRAS_REPLAY_UNLOCKED` 只在 `configuration.rpy` 里
+`default ... = 0`，**全脚本从未再赋值** —— 是开发者留给自己调试的死开关。
+`grep -rn EXTRAS_GALLERY_UNLOCKED game --include=*.rpy` 确认它只有 default 一处，就能放心用。
+
+于是解锁 = 置 1，一条 `.add()` 都不用写，196 个 id 一个都不用列：
+
+```rpy
+init 10000 python:
+    def _cc_unlock_extras():
+        store.EXTRAS_GALLERY_UNLOCKED = 1
+        store.EXTRAS_REPLAY_UNLOCKED = 1
+    _cc_unlock_extras()
+    config.after_load_callbacks.append(_cc_unlock_extras)   # 读档时存档里的 0 会盖掉 init
+    config.start_callbacks.append(_cc_unlock_extras)
+```
+
+三个坑，都踩过：
+
+1. **`config.load_callbacks` 这个名字不存在**（8.0.3 只有 `start_callbacks` / `after_load_callbacks`，
+   定义在 `renpy/common/00start.rpy:34,57`，`init -1600`）。写错不是"没生效"，
+   是 **init 阶段抛异常、游戏启动即崩**（同 §6.4 的机制）。**动手前先 `grep -n "_callbacks" renpy/config.py`。**
+2. **为什么要 `init 10000`**：`default` 语句在 init 阶段执行，而"新游戏时重置 store"用的快照
+   是 **init 全部跑完之后**才拍的，所以高优先级 init 的赋值会进快照、跟着新游戏活下来；
+   但**读旧存档**时存档里的值是 0，会盖掉快照，所以还要挂 `after_load_callbacks` 再设一次。
+3. **成就页的开关别顺手打开**：`ACHIEVEMENTS_UNLOCKED` 只会把成就名剧透出来，没有画面，
+   用户要的是 CG，不是成就列表。要就单独问。
+
+**验证不能只看 flag == 1**，要断言门控表达式整体：
+
+```python
+rep = {
+  "gate_first_clause": key in persistent.gallery["Becky"] and BONUS_CODE_SEASSON_1 == 1,
+  "gate_whole_expression": (key in persistent.gallery["Becky"] and BONUS_CODE_SEASSON_1 == 1)
+                            or EXTRAS_GALLERY_UNLOCKED == 1,
+  "gallery_sizes": {k: len(v) for k, v in persistent.gallery.items()},
+}
+```
+
+`first=False` 且 `whole=True` 才是"靠我们的开关打开的"；同时 `gallery_sizes` 每项都是 1
+（只有 `"default"`）证明玩家确实没进度。**再看一张真图**：用 §9 的老办法等主菜单出来后
+`renpy.jump_out_of_context("galleryDiane")` 截图，缩略图是彩色 CG 而不是锁图标才算完。
+动画那一页同理（`jump_out_of_context("galleryScenes")`），
+并且可以在探针里直接 `Replay("e1scene01_suck", locked=False)()` —— 实测从没通关的状态能直接播出来。
+**一次运行只 jump 得了一次**：第二次 `JumpOutException` 已经没有主菜单 context 兜底，会写 traceback 崩给玩家（§9 第 2 条的限定条件）。
+
+**回滚**：这个 `.rpy`（和引擎给它生成的 `.rpyc`）手动 `printf` 进 `localization/generated_files.txt`，
+`uninstall.py` 就会连它一起删。**但要想清楚**：汉化层和解锁层是两个功能，合成一条卸载命令
+意味着"取消汉化"会顺手把解锁也撤掉。要么接受并在交付说明里写清"解锁 = 删这两个文件"，
+要么分开放。本项目选了合并 + 明说。
 
 ## 12. 文件契约（复制到新项目时的最小工具集）
 
@@ -513,6 +727,7 @@ init -1000 python:
 | `tools/tl_reuse.py` | **模式 B 复用官方译文**：解析明文 `game/tl/<lang>/*.rpy` 里的 id 块 / `strings` 块，按**内容**配对（§3.6）。说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对是它的三条命门 | `tl/<lang>/*.rpy` + JSON → 就地填 `zh` + `reuse_report.txt` |
 | `tools/rpyc_extract.py` | **模式 B 的默认抽取器**（游戏带 `.rpyc` 时优先于 `rpy_extract.py`）：反序列化引擎真正加载的 AST，取 `Say.what` / `Menu` 标题——这就是引擎查 `strings:` 表时用的那几个字节，所以 `old` 不可能失配。`Character` 显示名回落到读 `.rpy`（8.1.2 的 AST 里源码只剩位置，见 §2）。`--reuse` 顺手按 identifier 连自带官方译文 |
 | `tools/textbox_fit.py` | §5.2 第 1-2 步的数据来源：从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size` 和（万一真要动几何时）所需 `ysize`，不拍脑袋 |
+| `tools/style_audit.py` | **跨批次风格闸门**（§10.5）：括号全/半角、`...`→`……`、`--` 不许变 `——`、`{b}X's{/b}` 英文所有格残渣、`{b}` 里没译的强调词、`daddy` 撞 `爸爸`。`--apply` 只做机械项并先备份真源 JSON，其余只报告 | 真源 JSON → 就地改写 + 分类计数报告 |
 | `tools/repair_json.py` | 回收侧机械修复：agent 手写的几百行 JSON 会出现"key 丢了开引号""值里有未转义引号"。按行修好后**必须与 group 的 id 集合完全对齐才写回**，对不上就退回重派——重派一组比误信一次修复便宜 |
 | `tools/make_selftest.py` + `tools/selftest_template.rpy` | §9.0 的现成 harness。探针语句从真源 JSON 生成；`mix` 模式按排版风险各取一条（最长行 / 带 `{size=26}` 补述 / 带名字框的台词 / 纯拟声单行）。跑完自动写 `selftest_report.txt`（`preferences.language`、`known_languages`、`font_name_map`、每条 `translate_string` 命中与否）和 12 张截图 |
 | `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
@@ -557,11 +772,37 @@ init -1000 python:
 24. 路线标记**判不出来就进 review 清单，不许猜**。极性反转是常态（本游戏 Alex：跟她争=涨 `alexDom` 才进她被绑的那场），只靠"蓝色=温柔"推不出来。
 21. **改对白框之前先读 `screen say` 用的是哪个样式名**：`style "window"` 的游戏对 `say_window` 的覆盖完全无感；背景写在 screen 里时样式层也改不到它（§5.1）。
 
+25. **老引擎先 grep 再写**：`config.font_name_map` 在 8.0.3 不存在、`config.load_callbacks` 也不存在，
+    写上去不是静默失效而是 **init 抛异常、启动即崩**。`grep -n "font_name_map" renpy/config.py`、
+    `grep -n "_callbacks" renpy/config.py` 两条命令换一次重启（§6.4、§11.1）。
+26. **双语退回开关放 `game/`，不放 `game/tl/<lang>/`**：后者只在当前语言匹配时加载，
+    切回英文的同时把自己的热键注销了（§7.1）。游戏自带的语言菜单经常是**注释掉的死 UI**。
+27. **20 组以上并发要知道硬上限是 20**，超出的调用直接报错、不排队；
+    派工 prompt 写"恰好三次工具调用"，并把"JSON 值内不要出现英文双引号"写进 glossary 契约（§8.1）。
+28. **回收以文件为准，不信 agent 自报条数**：`repair_json.py --in out_NN --group group_NN` 必须带 `--group`，
+    它现在两条路径都会校验 key 集合（§10.4）。
+29. **翻完跑 `style_audit.py --apply` 再建层**：20 个并行 agent 必然在括号、省略号、所有格、
+    强调词上分叉，`align_check` 抓不到这些；机械项自动修，剩下的人工过（§10.5）。
+30. **解锁图鉴优先找开发者留的死开关**（`grep` 门控表达式，看 `or XXX_UNLOCKED == 1`），
+    比填 persistent 干净；验证要断言整个门控表达式 + 真截图，不是只看 flag（§11.1）。
+31. **工具复制过来先跑一遍 `--help` 扫描**（§14 第 0 步）。这一轮 `rpyc_extract.py` 和 `repair_json.py`
+    都是 `import sys` 之前就用了 `sys.stdout`，一跑就 `NameError` —— 说明它们在上一次沉淀后**从没被执行过**。
+
 ---
 
 ## 14. 新项目执行手册（照抄顺序即可）
 
-前提：把 `tools/`（9 个文件）和这份 md 一起复制到新游戏根目录，`cd` 到该目录。所有脚本只依赖标准库 + 本机 Python 3，不需要装包。
+前提：把 `tools/`（16 个 `.py` + 1 个 harness 模板）和这份 md 一起复制到新游戏根目录，`cd` 到该目录。所有脚本只依赖标准库 + 本机 Python 3，不需要装包。
+
+**第 0 步：拷完工具先做一次 `--help` 扫描**，把"模块顶层就能炸"的问题在开工前一次性暴露：
+
+```bash
+for f in tools/*.py; do python "$f" --help >/dev/null 2>&1 || echo "FAIL $f"; done
+```
+
+`make_selftest.py` 用的是位置参数、不认 `--help`，它出现在 FAIL 里是正常的（会去 open 一个
+叫 `--help` 的文件）。其余每一个都必须过——这一轮就是靠它发现两个新工具在 `import sys`
+之前用了 `sys.stdout`，而那类 bug 会让整条流水线在跑了两小时之后才断。
 
 ```bash
 # 1) 侦察 + 抽取（含"游戏自带译文"自动识别）
@@ -593,18 +834,21 @@ rm game/tl/zh/99zz_selftest.rpy game/tl/zh/99zz_selftest.rpyc
 python tools/uninstall.py --dry-run           # 列出的必须全在你新增的目录里
 ```
 
-**换项目只需要动 5 个地方**（其余一律不用改）：
+**换项目只需要动这几处**（其余一律不用改）：
 
 | 位置 | 改什么 |
 | --- | --- |
 | `--lang` | 语言代码。若游戏自带 `chinese`，**必须另起一个名**（`zh`），否则你的 `strings:` 会被官方 id 块压掉（§3.5） |
 | `--kinds` | 只译对白用 `say`；要连选择支一起译用 `say,menu`；`uwrap`（HUD/图鉴/系统文案）默认**不要**开，见 §5 |
-| `build_tl.py --picker-name/--flag` | 语言菜单里显示的名字、persistent 开关变量名 |
-| `tools/scan_routes.py` | **路线标记**：解析 `menu:` 与 `screen choiceN()`，算出每个选项实际改哪个统计量/跳哪个 label，套 `route_rules.json` 判定，出"该标的选项串"+ 一份"规则判不出来、要人确认"的清单。**判不出来一律不猜** | `game/**.rpy` + rules → `route_marks.json` + `route_review.txt` |
-| `tools/font_cmap.py` | 纯 stdlib 读 TTF/OTF 的 `cmap`，回答"这个字形到底有没有"。任何要上屏的非拉丁字符（符号/emoji/生僻字）先过它 | 字体路径 + 文本 → 缺字列表，非零退出码 |
-| `localization/route_rules.json` | 某款游戏的路线规则实例（含剧情走向，**属衍生内容不外传**；公开仓放 `route_rules.template.json`） | 人写 + `route_review.txt` 回填 |
-| `localization/glossary.md` | 每个游戏的术语、人名表、语域基线——这是唯一需要重写的文本 |
-| `localization/names_manual.tsv` | 每个游戏的音译变体，第一次跑完候选表后人工填一次 |
+| `build_tl.py --picker-name/--flag` | 语言菜单里显示的名字、persistent 开关变量名（用项目缩写，如 `cc_bi_off`） |
+| `build_tl.py --font-mode` | 游戏自带 CJK 字体 → `--font-ref`；没带 → `--cjk-font` 从系统复制。**引擎版本不确定时用 `tag`**（§6.4） |
+| `localization/glossary.md` | 每个游戏的术语、人名表、语域基线，**以及给 agent 的执行契约**（§8.1）——这是唯一需要重写的文本 |
+| `localization/leak_allow.txt` | 本项目**故意**保留拉丁字的词（游戏内标题、品牌、外语原话、纯拟声），让 `align_check` 的 LEAK 归零且豁免本身可审（§13 第 21 条） |
+| `localization/names_manual.tsv` | 只在复用官方译文时用到：音译变体，第一次跑完候选表后人工填一次 |
+| `localization/route_rules.json` | 只在用户要"路线标记"时用到（§16）。实例含剧透，**不外传**，公开仓只放 `route_rules.template.json` |
+
+> 这张表曾经被我从 §12 的工具契约表粘进来两行三列的内容（`scan_routes.py` / `font_cmap.py`），
+> markdown 渲染是坏的。改表的时候注意列数要和表头一致。
 
 **分支判断（决定工作量的唯一变量）**：
 - 归档里有官方中文 → 翻译量 = `untranslated` 缺口（本项目 5,439 条，约 20 分钟 agent 时间）。
@@ -706,6 +950,38 @@ python tools/make_selftest.py localization/en-zh.json mix
 墙钟约 80 分钟，其中 35 组翻译的并发等待约 25 分钟。
 token：正常组 **30-60 万/组**，3 个跑偏组 260 / 370 / 630 万，全程约 2,400 万——**跑偏的 3 组占掉六成**，
 所以 §8 的 `tool_uses` 反查是这类项目最值钱的一条成本控制。
+
+**8.0.3 + 全量自译 + 图鉴解锁基线（Carnal Contract Season One，2026-10-06）**：
+13,415 条唯一串（**say 13,090 条 / 48.6 万字符**，menu 325 条按口径不译），散文本带 `.rpyc`，
+`game/tl/` 只有 `None/common.rpym` → **没有任何可复用译文**，游戏只带 4 个拉丁字体（`ade1.ttf` 对白、
+`toxigenesis_bd.otf` 名字框、`SourceSansPro` 界面、`Lato` 按钮）。
+
+- **两阶段派工**：阶段 1 只翻 `chapter01 + tutorials`（1,512 条 / 4 组）跑通全链路并亲眼看过截图；
+  阶段 2 剩余 11,587 条切 **22 组**（`--size 550 --chars 35000`，count 是绑定约束，550 条平均只有 2 万字符）。
+- **token**：阶段 1 用普通措辞，4 组里 **2 组跑偏**（17 / 12 次工具调用，170 / 164 万 token）。
+  阶段 2 换成"恰好三次工具调用"的写法（§8.1），22 组里 **21 组落在 3-6 次 / 18-87 万**，
+  只有 1 组因为自己写出非法 JSON 被迫回修，跑到 14 次 / 297 万。全程约 **1,100 万 token**。
+- **墙钟**：阶段 1 约 9 分钟（4 组并发），阶段 2 约 12 分钟（受 20 并发上限，22 组分两波）。
+- **回收**：`apply_trans` 共写入 13,004 条，**rejected 86 条全是 `no-cjk`**（纯呻吟/纯人名喊话，
+  按规则原样输出英文，属正确行为）；另有 1 条 `tag-mismatch`（agent 把 `X is just being X` 意译成
+  一句中文，标签少了一半）→ 拒收后手改，这是标签守恒闸门**真正拦下来**的一例。
+- **风格闸门**：`style_audit --apply` 三轮共改写 467 条（括号全角 317、省略号、`——`、英文所有格 84），
+  手工改 47 条（`{b}` 里没译的强调词 35 + `daddy` 2 + `*whispers*` 5 + 零散 5）。
+  最终 `latin-inside-bold` 剩 6 条，其中 5 条是**故意**的（`MILF` ×4、游戏内节目名 `WOULD YOU RATHER!`），
+  已进 `TERM_OK` 白名单。
+- **校验**：`qa.py` FAILURES 0；`align_check --only-names` 硬失败 0 / 告警 0
+  （**注意**：本作的 `Character` 显示名里混着 `Man` / `Dad` / `Waiter` / `Master` 这类普通名词，
+  照抄进 `--names` 会造出 42 条假 MISSING-NAME，见 §13 第 16 条的严重度分档）。
+- **几何零改动**：`gui.text_size 30`、`dialogue_width 1116`、`dialogue_ypos 75`、`textbox_height 208`
+  → 正文可视约 133px ≈ 3 行。`textbox_fit.py` 全表实测：**中文出框 0 条（0.0%）**，
+  英文参考行出框 114 条（0.9%），所以**既没动框也没降字号**（30 是原版值）。
+  最长那条 188 字符实测中文 2 行完整可读、英文尾部压到快捷菜单那一行 —— 按 §0.5 第 8 条这就是可接受终态。
+- **产物**：10 个 `.rpy`（`tl/zh/scripts/` 按章节镜像）+ `00zz_bilingual.rpy` + 1 个字体，
+  `game/tl/zh` 共 20MB（其中字体 17MB）。`uninstall.py --dry-run` 恰好 37 个文件（含两个 `game/cc_*.rpy` 及其 `.rpyc`）。
+- **启动成本**：`Loading script` 冷 **2.70s**（首次要把 10 个 `.rpy` 编成 `.rpyc`），之后热 **0.90–0.92s**。
+  对照"移除覆盖层"的一次冷测是 1.10s —— **单次测量、方差主导，不能当基线**；要量冷/冷对照得两次都清缓存。
+- **图鉴解锁**（§11.1）：163 处画廊门 + 30 处回放门，全部靠两个从未赋值的死开关；
+  新增 1 个 `game/ccg_unlock.rpy`，不写 persistent，实测 `Replay()` 从没通关状态能直接播出动画。
 
 **用来判断"哪里不对"的红线**：
 - `extract` 的 say 条数比 `.rpyc` 源文件数×合理对白量高出一个数量级 → 大概率没排除 `tl/**`（§3）。
