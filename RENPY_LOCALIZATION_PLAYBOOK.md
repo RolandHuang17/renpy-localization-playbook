@@ -1,7 +1,7 @@
 # Ren'Py 发行版汉化 / 本地化施工手册
 
 > 面向执行者（人或编码 agent）的可复制流程。适用于 **Ren'Py 官方发行的 PC/zip 版游戏**（含打包脚本、无源码）。
-> **默认需求全在 §0.5，优先级口径（时间 > token）在 §0.6**——只丢这份 md 时那 9 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
+> **默认需求全在 §0.5，优先级口径（时间 > token）在 §0.6**——只丢这份 md 时那 10 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
 > 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--text-size`、§5.2 的"对白框几何不许动"这条口径，与 §9.0 的探针方法学；最新的 Milfylicious 2 0.37（2026-10-06，**20,543 条对白 / 162 万字符，散文本但带 `.rpyc`、无官方中文**）补上了 §0 的 AST 抽取分支、§14.1 的分阶段派工，以及 §8 的子 agent 跑偏判据。
 > 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7 / 8.1.2 / 8.0.3** 上都验证过；标注版本相关的条目换版本需复验。
 > 配套工具集（16 个纯标准库 Python 文件 + 1 个自检 harness 模板，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）、By Justice or Mercy（散文本 + 自带明文官方译文型）、Milfylicious 2（散文本 + 自带 `.rpyc`、无官方中文、全量自译型）与 Carnal Contract（散文本 + 8.0.3 + 图鉴解锁型）五个项目的 `tools/` 下。
@@ -24,6 +24,10 @@
 5. **翻译要贴合游戏氛围**：先判断题材与语域再下笔。旁白用书面腔，角色之间语域必须拉开（谁痞、谁端着、谁先绷不住），内心独白保持独白的视觉与语气。露骨内容按原文语气直译，不回避不美化——这是用户自有游戏的虚构文本本地化，回避会造成剧情断裂。
 6. **一切改动纯新增、可一键撤销**，原文件零修改（见 §11）。
 7. 做完先自检再交付（§9 + §12 的 qa/align），**不要**在没跑过游戏的情况下说"做好了"。
+10. **汉化新游戏时，顺手把锁起来的 CG / 图鉴 / 图片 / 动画回看一起解锁**（用户 2026-10-06 定为默认，
+    不用再问）。但**不要硬解锁**：要做一个**游戏内可切换的按钮**，让玩家自己在
+    "按游戏原进度（锁着）"和"全部打开"之间选，状态存 `persistent`。做法见 §11.2。
+    成就页的开关是另一回事（只剧透成就名、没有画面），要单独问。
 9. **玩家要的是"玩的时候不用记攻略"**：如果用户提过他想走某条剧情线（女S男M、某角色路线、某结局），
    就把那条线的**决定性选项在游戏里直接标出来**（§16），而不是给他一份文字攻略让他对着看。
    标记是覆盖层里的字符串替换，纯新增、可回滚，且**默认只加前缀不改选项文字**（不违反"菜单不译"）。
@@ -707,6 +711,51 @@ rep = {
 并且可以在探针里直接 `Replay("e1scene01_suck", locked=False)()` —— 实测从没通关的状态能直接播出来。
 **一次运行只 jump 得了一次**：第二次 `JumpOutException` 已经没有主菜单 context 兜底，会写 traceback 崩给玩家（§9 第 2 条的限定条件）。
 
+### 11.2 解锁要做成**游戏内可切换按钮**，不要硬解（默认口径 §0.5 第 10 条）
+
+玩家要的是"我能自己决定这一局要不要看"，不是一个被永久改掉的存档状态。形状：
+
+```rpy
+default persistent.cc_gallery_unlocked = True      ## 默认全解锁
+
+init 10000 python:
+    def _cc_apply_gallery_unlock():
+        on = bool(getattr(persistent, "cc_gallery_unlocked", True))
+        store.EXTRAS_GALLERY_UNLOCKED = 1 if on else 0
+        store.EXTRAS_REPLAY_UNLOCKED = 1 if on else 0
+    _cc_apply_gallery_unlock()
+    config.after_load_callbacks.append(_cc_apply_gallery_unlock)
+    config.start_callbacks.append(_cc_apply_gallery_unlock)
+    config.always_shown_screens.append("cc_gallery_unlock_button")
+
+screen cc_gallery_unlock_button():
+    zorder 100
+    if _cc_menu_up():                                ## 只在菜单类界面露出，正片里不常驻
+        textbutton "…全解锁…":
+            align (0.995, 0.28)
+            anchor (1.0, 0.0)
+            action [ToggleField(persistent, "cc_gallery_unlocked"),
+                    Function(_cc_apply_gallery_unlock)]
+```
+
+四条实测要点：
+
+1. **标签里的中文必须包 `{font=…}`**。UI 字体（本作是 `SourceSansPro` / `Lato`）没有 CJK 字形，
+   不包就是豆腐块 —— 和 §16.5 徽章那条是同一个闸门，先过 `tools/font_cmap.py`。
+2. **只在菜单界面显示**：`if _cc_menu_up()` 里查 `renpy.get_screen("main_menu"/"preferences"/…)`。
+   正片屏幕上常驻一个可点的东西会挡画面也挡点击。位置用截图挑（本作右上 `align (0.995, 0.28)`
+   正好在 Steam/Discord 下面、logo 上面，不压任何原 UI）。
+3. **验证开关类 UI 必须走真实 action 链**。从探针里直接 `persistent.x = False` 再截图，
+   **屏幕不会重跑**，标签还停在旧状态（我第一版就是这么误判"按钮没生效"）。
+   正确做法是把按钮 `action` 列表里的那几个对象取出来自己调一遍：
+   `[store.ToggleField(persistent, "cc_gallery_unlocked"), store.Function(_cc_apply)]` → 逐个 `()`，
+   再截图看标签有没有翻。合成鼠标点击送不进 SDL（§9 第 3 条），所以这是唯一的自动化真路径。
+4. **`ToggleField` / `Function` 不在 `renpy.exports` 上**（8.0.3 实测 `AttributeError`），
+   它们是 store / `renpy.commonactions` 里的名字。探针里要用 `renpy.store.ToggleField`。
+
+状态机验证到位的样子（三个截图 + 一行报告）：`flag=1 persistent=True` → `flag=0 persistent=False`
+→ `flag=1 persistent=True`，并且**第二张截图的标签文案确实变了**。
+
 **回滚**：这个 `.rpy`（和引擎给它生成的 `.rpyc`）手动 `printf` 进 `localization/generated_files.txt`，
 `uninstall.py` 就会连它一起删。**但要想清楚**：汉化层和解锁层是两个功能，合成一条卸载命令
 意味着"取消汉化"会顺手把解锁也撤掉。要么接受并在交付说明里写清"解锁 = 删这两个文件"，
@@ -783,7 +832,10 @@ rep = {
     它现在两条路径都会校验 key 集合（§10.4）。
 29. **翻完跑 `style_audit.py --apply` 再建层**：20 个并行 agent 必然在括号、省略号、所有格、
     强调词上分叉，`align_check` 抓不到这些；机械项自动修，剩下的人工过（§10.5）。
-30. **解锁图鉴优先找开发者留的死开关**（`grep` 门控表达式，看 `or XXX_UNLOCKED == 1`），
+32. **解锁是默认动作，但必须可切换**：做成游戏内按钮 + `persistent` 存状态（§11.2），
+    别硬解。验证要**走按钮的真实 action 链**再截图——探针里直接改 `persistent` 字段，
+    屏幕不会重跑，标签停在旧状态，会误判成"按钮没生效"。
+31. **解锁图鉴优先找开发者留的死开关**（`grep` 门控表达式，看 `or XXX_UNLOCKED == 1`），
     比填 persistent 干净；验证要断言整个门控表达式 + 真截图，不是只看 flag（§11.1）。
 31. **工具复制过来先跑一遍 `--help` 扫描**（§14 第 0 步）。这一轮 `rpyc_extract.py` 和 `repair_json.py`
     都是 `import sys` 之前就用了 `sys.stdout`，一跑就 `NameError` —— 说明它们在上一次沉淀后**从没被执行过**。
@@ -843,6 +895,7 @@ python tools/uninstall.py --dry-run           # 列出的必须全在你新增�
 | `build_tl.py --picker-name/--flag` | 语言菜单里显示的名字、persistent 开关变量名（用项目缩写，如 `cc_bi_off`） |
 | `build_tl.py --font-mode` | 游戏自带 CJK 字体 → `--font-ref`；没带 → `--cjk-font` 从系统复制。**引擎版本不确定时用 `tag`**（§6.4） |
 | `localization/glossary.md` | 每个游戏的术语、人名表、语域基线，**以及给 agent 的执行契约**（§8.1）——这是唯一需要重写的文本 |
+| 图鉴解锁（§11.1/§11.2） | 先 `grep` 出这个游戏的门控表达式和它自己留的总开关名（本作 `EXTRAS_GALLERY_UNLOCKED` / `EXTRAS_REPLAY_UNLOCKED`），再把 `persistent.<缩写>_gallery_unlocked`、按钮文案和 `align` 位置换成这个游戏的；位置必须截图确认不压原 UI |
 | `localization/leak_allow.txt` | 本项目**故意**保留拉丁字的词（游戏内标题、品牌、外语原话、纯拟声），让 `align_check` 的 LEAK 归零且豁免本身可审（§13 第 21 条） |
 | `localization/names_manual.tsv` | 只在复用官方译文时用到：音译变体，第一次跑完候选表后人工填一次 |
 | `localization/route_rules.json` | 只在用户要"路线标记"时用到（§16）。实例含剧透，**不外传**，公开仓只放 `route_rules.template.json` |
@@ -980,8 +1033,13 @@ token：正常组 **30-60 万/组**，3 个跑偏组 260 / 370 / 630 万，全�
   `game/tl/zh` 共 20MB（其中字体 17MB）。`uninstall.py --dry-run` 恰好 37 个文件（含两个 `game/cc_*.rpy` 及其 `.rpyc`）。
 - **启动成本**：`Loading script` 冷 **2.70s**（首次要把 10 个 `.rpy` 编成 `.rpyc`），之后热 **0.90–0.92s**。
   对照"移除覆盖层"的一次冷测是 1.10s —— **单次测量、方差主导，不能当基线**；要量冷/冷对照得两次都清缓存。
-- **图鉴解锁**（§11.1）：163 处画廊门 + 30 处回放门，全部靠两个从未赋值的死开关；
-  新增 1 个 `game/ccg_unlock.rpy`，不写 persistent，实测 `Replay()` 从没通关状态能直接播出动画。
+- **图鉴解锁**（§11.1/§11.2）：163 处画廊门 + 30 处回放门，全部靠两个从未赋值的死开关；
+  新增 1 个 `game/ccg_unlock.rpy`，不写 `persistent.gallery`、不动存档。
+  按 §0.5 第 10 条做成**游戏内按钮**（右上，绿=全解锁 / 粉=按进度，状态进 `persistent`），
+  验证走的是按钮真实 action 链：`flag 1→0→1` 且**第二张截图的文案确实跟着翻了**。
+  实测 `Replay()` 从没通关状态能直接播出动画，画廊页 193 张缩略图全彩。
+  踩到的新坑：`ToggleField` / `Function` 不在 `renpy.exports` 上（8.0.3 `AttributeError`），
+  探针里得用 `renpy.store.*`；UI 字体没有 CJK，按钮标签不包 `{font=}` 就是豆腐块。
 
 **用来判断"哪里不对"的红线**：
 - `extract` 的 say 条数比 `.rpyc` 源文件数×合理对白量高出一个数量级 → 大概率没排除 `tl/**`（§3）。

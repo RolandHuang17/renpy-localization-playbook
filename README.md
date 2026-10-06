@@ -68,9 +68,16 @@ grep -rn EXTRAS_GALLERY_UNLOCKED game --include=*.rpy      # 只有 default 一�
 
 Carnal Contract 的 163 + 30 处门控全是 `... and BONUS_CODE_SEASSON_1 == 1 or EXTRAS_GALLERY_UNLOCKED == 1:`，
 而 Python 的 `A and B or C` == `(A and B) or C`，所以**置 1 即全解锁**：一个新增 `.rpy`、
-不写 `persistent`、不列 196 个 id、不动存档，删文件即还原。验证要断言**整个门控表达式**
+不写 `persistent.gallery`、不列 196 个 id、不动存档，删文件即还原。验证要断言**整个门控表达式**
 （`first=False` 且 `whole=True` 才说明是靠我们的开关打开的）+ 一张真截图，不是只看 flag。
-详见手册 §11.1（含 `config.load_callbacks` 在 8.0.3 不存在、写错会启动即崩这条坑）。
+
+**这是默认动作**（用户 2026-10-06 定的口径，手册 §0.5 第 10 条）：汉化新游戏时顺手把锁起来的
+CG / 图鉴 / 图片 / 动画回看一起解。但**不要硬解** —— 要做一个**游戏内可切换按钮**
+（绿=全解锁 / 粉=按游戏原进度，状态存 `persistent`），让玩家自己决定。
+两个实测坑：按钮标签里的中文必须包 `{font=}`（UI 字体没有 CJK 字形），
+以及**验证必须走按钮的真实 action 链**——探针里直接改 `persistent` 字段屏幕不会重跑，
+标签停在旧状态，会误判成"按钮没生效"。详见手册 §11.1 / §11.2
+（含 `config.load_callbacks`、`ToggleField` 不在 `renpy.exports` 上这些版本坑）。
 
 ## 工具清单
 
