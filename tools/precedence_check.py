@@ -131,9 +131,12 @@ def main():
     ap.add_argument("--table", default="localization/en-zh.json")
     ap.add_argument("--kinds", default="say")
     ap.add_argument("--report", default="localization/precedence_report.txt")
-    ap.add_argument("--exclude", default="",
+    ap.add_argument("--exclude", default="00zz,99zz,cc_,zz_",
                     help="comma list of substrings; scripts matching are NOT counted "
-                         "(use it for a third-party mod's own UI files -- cheat panels and "
+                         "comma list, and by default also skips OUR OWN overlay files "
+                         "(00zz/99zz/cc_/zz_ prefixes: their notify text and keymap names "
+                         "are already Chinese/identifiers, and counting them looks like a gap). "
+                         "Add to it for a third-party mod's own UI files -- cheat panels and "
                          "hand-written gallery screens are UI text, and section 0.5 says UI stays English)")
     args = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
