@@ -113,6 +113,25 @@ def main():
             verdicts[k] = v
     titles = load(args.titles) if args.titles and os.path.isfile(args.titles) else {}
 
+    # an empty input list reads like "this game has no such content" but usually means
+    # a wrong path, so refuse instead of writing a silently empty data file.
+    if not scenes:
+        raise SystemExit("no scenes loaded from %r - check --scenes" % args.scenes)
+    if not verdicts:
+        raise SystemExit("no verdicts matched %r - check --verdicts (paths are resolved "
+                         "relative to the game root, so run this from there)" % args.verdicts)
+
+    # vars the dev re-seeds inside `if _in_replay:` blocks -> a cold entry into a
+    # NON-hardened label would otherwise keep the `define` default (e.g. the player's
+    # chosen name shows up as "Dotty").
+    game_seed = {}
+    for sc in scenes.values():
+        for line in sc.get("seed_lines") or []:
+            m = re.match(r"\$\s*([A-Za-z_]\w*)\s*=\s*(.+)$", line.strip())
+            if m and "persistent" in m.group(2):
+                game_seed[m.group(1)] = m.group(2).strip()
+    print("learned seed assignments from the game: %s" % (game_seed or "none"))
+
     menu_cache = {}
 
     # --- derive menu picks from the declared paired branches ------------------------
@@ -180,6 +199,7 @@ def main():
                 sc.get("menus", 0),
                 "" if sc.get("tail_guard") else " · 需停车闸"),
             "note": v.get("note") or "",
+            "seed": dict(game_seed),
             "reason": v.get("reason") or "",
         })
 
@@ -195,6 +215,7 @@ def main():
                                              if isinstance(v, str) else v))
         body.append("        'extend': %s," % json.dumps(e["extend"], ensure_ascii=False))
         body.append("        'picks': %s," % json.dumps(e["picks"], ensure_ascii=False))
+        body.append("        'seed': %s," % json.dumps(e.get("seed", {}), ensure_ascii=False))
         for k in ("who_leads_zh", "meta", "note", "reason"):
             body.append("        %r: %s," % (k, json.dumps(e[k], ensure_ascii=False)))
         body.append("    },")

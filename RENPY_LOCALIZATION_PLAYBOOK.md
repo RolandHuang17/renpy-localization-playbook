@@ -761,6 +761,104 @@ screen cc_gallery_unlock_button():
 意味着"取消汉化"会顺手把解锁也撤掉。要么接受并在交付说明里写清"解锁 = 删这两个文件"，
 要么分开放。本项目选了合并 + 明说。
 
+
+### 11.3 三条解锁路线，按成本排序（第 2 条是参照社区 mod 学到的）
+
+| | 做法 | 适用条件 | 成本 / 风险 |
+| --- | --- | --- | --- |
+| **A. 翻开发者死开关**（§11.1） | `grep` 门控表达式，找 `or XXX_UNLOCKED == 1` 这类从未赋值的总开关，置 1 | 作者留了开关（不少发行版都有） | 最低；不写 persistent，删文件即还原 |
+| **B. 反编译游戏自己的图鉴 screen，就地改门控**（本节） | 用 [unrpyc](https://github.com/CensoredUsername/unrpyc) 解出游戏的 `gallery.rpy`，把每条的 `Replay(lbl)` 改成 `Replay(lbl, locked=False)`、把 `if persistent.x:` 的判断去掉，然后把这份 `.rpy` 放进 `game/` 覆盖归档里的 `.rpyc` | **没有死开关**、门控散落在每个条目上 | 中；要维护一整屏 UI，游戏更新后行号/条目会变 |
+| C. 自己另写一个图鉴页 | 完全自建 screen + 按钮 | 想顺便改布局/加筛选 | 最高，等于重做 UI |
+
+Being a DiK 的社区 Gallery_Unlocker 是 **B 的范本**（`gallery.rpy`，1205 行，尾部就写着
+`# Decompiled by unrpyc`）。拆开看它的四个决定，每一条都可以直接抄：
+
+```rpy
+init:
+    $ persistent.totalScenes = 50
+    if renpy.loadable("season2/scripts/update7.rpyc"):      # ①版本探测
+        $ persistent.totalScenes_s2 = 67
+    if persistent.ep1_josy_lewd_chick == None:              # ②None 归一化
+        $ persistent.ep1_josy_lewd_chick = False
+    ...
+screen scenes:
+    tag menu                                                # ③参与菜单栈
+    key "mouseup_2" action Return()                         #   右键就能退出
+    vpgrid:                                                 # ④网格 + 滚动
+        cols 5
+        draggable True
+        mousewheel True
+        scrollbars "vertical"
+        vbox:
+            imagebutton:
+                focus_mask True                             # 不规则缩略图要按像素遮罩判定点击
+                idle Transform ("images/gallery/ep1_josy.png")
+                action Replay("ep1_josy_lewd", locked=False)  # 核心就这一句
+```
+
+1. **`renpy.loadable("<归档内路径>.rpyc")` 做版本/内容探测**，而不是把数量写死。
+   它靠"这个文件在不在"决定 `totalScenes` 是 50 还是 67，一个 mod 同时适配多个更新版。
+   同理运行时防呆用 `renpy.has_label(label)`：游戏更新后 label 改名/搬走时，
+   书签应当 `renpy.notify()` 提示，而不是抛异常崩在玩家面前。
+2. **绕过门控进未解锁场景之前，先把 `None` 归一化。** 游戏的"已收集 X / Y"这类计数
+   会对 `persistent.x` 做算术，未解锁时它是 `None` → 直接崩。社区 mod 用两百行
+   `if persistent.x == None: $ persistent.x = False` 专门处理这件事。
+   **凡是让玩家可以跳过进度去进场景的功能，都要检查游戏自己有没有这种计数。**
+3. **`tag menu` + 右键 `Return()`**：自建的全屏菜单要给一个不用找按钮的出口。
+4. **`vpgrid` + `focus_mask True`**：条目多到几十上百时用网格而不是 vbox 列表；
+   非矩形缩略图必须开 `focus_mask`，否则透明区域也会吃掉点击。
+
+**反面教训**：那个 mod 把 115 个条目**逐个手抄**成 1205 行，绑死在 0.8.0 这一个版本上 ——
+游戏一更新就得重做。所以本仓库的 B 路线要落成**生成器**（`tools/build_bookmarks.py` 就是这个思路：
+条目、范围、门控、播种全部从 `.rpyc` AST 里读出来再生成），而不是手写覆盖层。
+
+### 11.4 冷进"未硬化"场景要补作者自己补的那几个变量
+
+这条是 §11.3 第 2 点的进阶版，也是 Being a DiK 那个 mod 没做、但本作必须做的一件事。
+
+作者把场景做进画廊时会写头守卫来重播种（因为 `Replay` 会 `clean_stores()`，
+store 回到 `define` 值，玩家起的名字会退回默认）：
+
+```rpy
+label e1scene01_suck:
+    if _in_replay:
+        $ name = persistent.name        # ← 没有这行，名字框显示 "Dotty"
+```
+
+**而没被做进画廊的场景没有这行。** Carnal Contract 的 10 条书签**全部属于这种**，
+所以冷进去之后对白里 `[name]` 渲染成 `define name = "Dotty"`，不是玩家起的名字 ——
+不崩，但一眼假。
+
+做法：**让生成器从游戏自己的头守卫里学播种**，运行时经 `Replay(scope=…)` 注入：
+
+```python
+# tools/build_bookmarks.py：扫遍硬化场景的 seed_lines，收集 `var = <含 persistent 的表达式>`
+game_seed = {}
+for sc in scenes.values():
+    for line in sc.get("seed_lines") or []:
+        m = re.match(r"\$\s*([A-Za-z_]\w*)\s*=\s*(.+)$", line.strip())
+        if m and "persistent" in m.group(2):
+            game_seed[m.group(1)] = m.group(2).strip()      # {'name': 'persistent.name'}
+```
+
+```rpy
+# 运行时：在**外面**（正常 store）求值，再把值塞进 scope
+for var, expr in (entry.get("seed") or {}).items():
+    try:
+        scope[var] = eval(expr)
+    except Exception:
+        pass
+Replay(entry["label"], scope=scope, locked=False)()
+```
+
+实测：把 `persistent.name` 设成 `Zedtest` 后冷进未硬化场景 `n_bjj_n_1`，
+回放里读 `store.name` 得到 `'Zedtest'`（没播种会是 `'Dotty'`），退出后 `persistent.name` 未被改动。
+
+**求值要在进入回放之前做**：`scope` 是"设值"，不是"贴代码"，所以 `eval` 发生在正常 store 里，
+回放内不需要那个表达式所依赖的东西存在。
+
+---
+
 ## 12. 文件契约（复制到新项目时的最小工具集）
 
 | 文件 | 职责 | 输入 → 输出 |
@@ -778,7 +876,7 @@ screen cc_gallery_unlock_button():
 | `tools/textbox_fit.py` | §5.2 第 1-2 步的数据来源：从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size` 和（万一真要动几何时）所需 `ysize`，不拍脑袋 |
 | `tools/style_audit.py` | **跨批次风格闸门**（§10.5）：括号全/半角、`...`→`……`、`--` 不许变 `——`、`{b}X's{/b}` 英文所有格残渣、`{b}` 里没译的强调词、`daddy` 撞 `爸爸`。`--apply` 只做机械项并先备份真源 JSON，其余只报告 | 真源 JSON → 就地改写 + 分类计数报告 |
 | `tools/scan_bookmarks.py` | **路线书签的场景枚举器**（§17）：从引擎真正加载的 `.rpyc` AST 列出全部 `label`，给出每个场景的节点范围、`_in_replay` 头/尾守卫、尾跳目标、区间外绕行清单（`escapes`）、出场说话人、作者自己的状态播种行；`--dump-candidates` 按规则词表出候选批次喂判定 agent。自带覆盖率自检（`.rpy` 里 `_in_replay` 出现数 vs 扫到数），检测一滑会直接告警而不是静默少报 | `game/**/*.rpyc` → `scenes.json` + `scenes_report.txt` + 候选批 |
-| `tools/build_bookmarks.py` | 把 `scenes.json` + `verdicts_*.json` + `bookmark_rules.json` 编成 `game/cc_bookmark_data.rpy`（`define cc_bm_entries`）。最值钱的是 **picks 推导**：对每对成对分支，找一个 menu 的两个选项分别跳到这两个 label，记下该选第几项；推不出来就进 review 不猜。jump 从 `.rpy` 文本解析，因为 `Menu.items` 第二项是条件串不是块（§17.7） | 三份输入 → 数据 `.rpy` + `bookmark_review.txt` |
+| `tools/build_bookmarks.py` | 把 `scenes.json` + `verdicts_*.json` + `bookmark_rules.json` 编成 `game/cc_bookmark_data.rpy`（`define cc_bm_entries`）。最值钱的是 **picks 推导**：对每对成对分支，找一个 menu 的两个选项分别跳到这两个 label，记下该选第几项；推不出来就进 review 不猜。第二个增量是 **播种学习**：扫硬化场景的 `if _in_replay:` 块收集 `var = persistent.x`，写进每条书签的 `seed`（§11.4）。两份输入路径都写错时它会直接报错而不是产出空数据文件。jump 从 `.rpy` 文本解析，因为 `Menu.items` 第二项是条件串不是块（§17.7） | 三份输入 → 数据 `.rpy` + `bookmark_review.txt` |
 | `tools/repair_json.py` | 回收侧机械修复：agent 手写的几百行 JSON 会出现"key 丢了开引号""值里有未转义引号"。按行修好后**必须与 group 的 id 集合完全对齐才写回**，对不上就退回重派——重派一组比误信一次修复便宜 |
 | `tools/make_selftest.py` + `tools/selftest_template.rpy` | §9.0 的现成 harness。探针语句从真源 JSON 生成；`mix` 模式按排版风险各取一条（最长行 / 带 `{size=26}` 补述 / 带名字框的台词 / 纯拟声单行）。跑完自动写 `selftest_report.txt`（`preferences.language`、`known_languages`、`font_name_map`、每条 `translate_string` 命中与否）和 12 张截图 |
 | `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
@@ -851,16 +949,27 @@ screen cc_gallery_unlock_button():
 38. **书签 UI 截图必须走真实 `ShowMenu()`**，`show_screen` 会让 `get_screen()` 为真但画面没渲染；
     `ShowMenu` 阻塞期间 periodic 回调仍跑，正好在那里截图。探针写过的 `persistent` 开关会存盘泄漏，
     每轮要显式设定并复原。（§17.6）
-31. **解锁图鉴优先找开发者留的死开关**（`grep` 门控表达式，看 `or XXX_UNLOCKED == 1`），
+30. **解锁图鉴优先找开发者留的死开关**（`grep` 门控表达式，看 `or XXX_UNLOCKED == 1`），
     比填 persistent 干净；验证要断言整个门控表达式 + 真截图，不是只看 flag（§11.1）。
-31. **工具复制过来先跑一遍 `--help` 扫描**（§14 第 0 步）。这一轮 `rpyc_extract.py` 和 `repair_json.py`
+33. **工具复制过来先跑一遍 `--help` 扫描**（§14 第 0 步）。这一轮 `rpyc_extract.py` 和 `repair_json.py`
     都是 `import sys` 之前就用了 `sys.stdout`，一跑就 `NameError` —— 说明它们在上一次沉淀后**从没被执行过**。
+
+39. **没有死开关就走 B 路线**：反编译游戏自己的图鉴 screen、就地改门控、用 `.rpy` 覆盖归档
+    `.rpyc`（§11.3）。但**条目必须由生成器产出**，不要像社区 mod 那样手抄 115 个按钮 ——
+    那玩意儿绑死单一版本，游戏一更新就整份作废。
+40. **跳过进度进场景前，先查游戏自己有没有"已收集 X/Y"这类计数**：未解锁的 `persistent.x`
+    是 `None`，参与算术会崩，要 `== None → False` 归一化（§11.3 第 2 条）。
+41. **冷进未硬化场景要补作者的播种行**：`Replay` 会 `clean_stores()`，玩家起的名字会退回
+    `define` 默认值。让生成器从硬化场景的 `if _in_replay:` 块里学出 `var = persistent.x`，
+    运行时在**回放外**求值后经 `scope=` 注入（§11.4，实测 `Zedtest` vs `Dotty`）。
+42. **运行时用 `renpy.has_label()` 防呆、用 `renpy.loadable("...rpyc")` 探测版本**，
+    游戏更新后标签搬走时提示而不是崩（§11.3 第 1 条）。
 
 ---
 
 ## 14. 新项目执行手册（照抄顺序即可）
 
-前提：把 `tools/`（16 个 `.py` + 1 个 harness 模板）和这份 md 一起复制到新游戏根目录，`cd` 到该目录。所有脚本只依赖标准库 + 本机 Python 3，不需要装包。
+前提：把 `tools/`（20 个 `.py` + 1 个 harness 模板）和这份 md 一起复制到新游戏根目录，`cd` 到该目录。所有脚本只依赖标准库 + 本机 Python 3，不需要装包。
 
 **第 0 步：拷完工具先做一次 `--help` 扫描**，把"模块顶层就能炸"的问题在开工前一次性暴露：
 

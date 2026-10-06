@@ -79,6 +79,25 @@ CG / 图鉴 / 图片 / 动画回看一起解。但**不要硬解** —— 要做
 标签停在旧状态，会误判成"按钮没生效"。详见手册 §11.1 / §11.2
 （含 `config.load_callbacks`、`ToggleField` 不在 `renpy.exports` 上这些版本坑）。
 
+### 三条解锁路线，按这个顺序试
+
+| 路线 | 做法 | 代价 | 什么时候用 |
+| --- | --- | --- | --- |
+| **A 翻开发者死开关** | grep 出 `XXX_UNLOCKED` 一类的总开关，新增 `.rpy` 置 1 | 一个文件、零条目 | 永远先试这个 |
+| **B 反编译图鉴 screen 就地改门控** | `unrpyc` 把游戏的 gallery screen 反编译成 `.rpy`，手改 `if` 条件，靠 loose `.rpy` 覆盖归档 `.rpyc` | 条目要逐条搬，跟版本死绑 | A 找不到开关、门控写在 screen 内部时 |
+| **C 直接填 `persistent.gallery`** | 枚举全部 id 写进存档字段 | 要动存档、换版本 id 就失效 | 前两条都不通才考虑，且别把它打进 mod |
+
+Being-a-DiK 0.8.0 的社区 unlocker 是 B 路线的完整范本（1205 行，尾部标着
+`# Decompiled by unrpyc`），值得直接抄的四件事：用 `renpy.loadable("…rpyc")` 探版本再决定加载哪段、
+`persistent.x == None → False` 归一化、图鉴 screen 加 `tag menu` + 右键 `Return()`、
+长列表用 `vpgrid` + `focus_mask`。它的反面教训是 **115 条手写条目把它钉死在 0.8.0**——
+所以本仓库的 B 路线必须落成**生成器**（从游戏自己的脚本里扫条目），不要手抄。
+
+B 路线还有一个只在“冷进场景”才暴露的坑：绕过进度直接跳进未硬化的场景时，游戏自己的
+“已收集 X/Y”计数会对 `None` 做算术而崩；而 `Replay` 会 `clean_stores()`，把玩家起的名字退回
+`define` 默认值。修法不是猜，是**从游戏自己的硬化场景里学**——扫 `if _in_replay:` 块里的
+`var = persistent.x` 收集成播种表。详见手册 §11.3 / §11.4。
+
 ## 工具清单
 
 | 文件 | 职责 |
