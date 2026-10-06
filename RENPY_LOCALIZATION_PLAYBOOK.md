@@ -4,7 +4,7 @@
 > **默认需求全在 §0.5，优先级口径（时间 > token）在 §0.6**——只丢这份 md 时那 10 条就是需求，不用等补充说明。**要开工请直接看 §14「新项目执行手册」**（A/B 两条分支的命令顺序 + 换项目要改的参数），§15 是可用来估工时和判断异常的真实基线，其余章节是依据和坑。
 > 本文件由 Sunset Rose 0.3 汉化任务（2026-10-04，3966 条 / 21.4 万字符）实测沉淀，在 Midnight Paradise 1.1 任务（2026-10-04，**59,201 条对白 / 300 万字符**，其中 53,762 条直接复用官方译文）上复验与修正，又在 The Tutor 1.0 任务（2026-10-05，**323 条对白 / 3.9 万字符，散文本 `.rpy` 无归档**）上补齐了"小项目 + 固定高度对白框"这条分支，再在 By Justice or Mercy v25（2026-10-05，**散文本 + 自带明文官方中文：18,164 条对白，复用 99.65%**）上补齐了模式 B 的译文复用（`tl_reuse.py`）、`--font-ref`、`--text-size`、§5.2 的"对白框几何不许动"这条口径，与 §9.0 的探针方法学；最新的 Milfylicious 2 0.37（2026-10-06，**20,543 条对白 / 162 万字符，散文本但带 `.rpyc`、无官方中文**）补上了 §0 的 AST 抽取分支、§14.1 的分阶段派工，以及 §8 的子 agent 跑偏判据。
 > 引擎结论在 Ren'Py **8.5.3 / 8.5.2 / 8.4.2 / 8.3.7 / 8.1.2 / 8.0.3** 上都验证过；标注版本相关的条目换版本需复验。
-> 配套工具集（16 个纯标准库 Python 文件 + 1 个自检 harness 模板，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）、By Justice or Mercy（散文本 + 自带明文官方译文型）、Milfylicious 2（散文本 + 自带 `.rpyc`、无官方中文、全量自译型）与 Carnal Contract（散文本 + 8.0.3 + 图鉴解锁型）五个项目的 `tools/` 下。
+> 配套工具集（24 个纯标准库 Python 文件 + 1 个自检 harness 模板，可直接复制）见 §12；参考实现留在 Midnight Paradise（归档型）、The Tutor（散文本型）、By Justice or Mercy（散文本 + 自带明文官方译文型）、Milfylicious 2（散文本 + 自带 `.rpyc`、无官方中文、全量自译型）与 Carnal Contract（散文本 + 8.0.3 + 图鉴解锁型）与 **Being a DIK 0.8.2（归档型 + 7.4.10 + 带 overlay 归档与社区 mod，全量自译）** 六个项目的 `tools/` 下。
 >
 > **2026-10-06 Carnal Contract Season One 新增**：13,090 条对白 / 48.6 万字符、引擎 **8.0.3**、无官方中文、游戏只带拉丁字体、散文本带 `.rpyc`。
 > 这一轮补了 §6.4（老引擎根本没有 `config.font_name_map`）、§7.1（双语退回开关必须放 `game/`，放 `tl/<lang>/` 会自我注销）、
@@ -107,7 +107,16 @@ index = pickle.loads(zlib.decompress(读(索引偏移)))
 payload = zlib.decompress(raw[start:start+length])
 (data, stmts) = unpickle(payload)
 ```
-- **slot 2 优先于 slot 1**：slot 1 是转换前 AST，slot 2 是 `renpy.translation.restructure()` 之后的（`renpy/script.py` 的 `load_file` 里 `for slot in [2, 1]`）。要拿翻译相关的节点必须用 slot 2。
+- **slot 2 优先于 slot 1**
+**新增（Being a DIK 0.8.2，引擎 7.4.10u）：RPC2 的 slot 载荷可能是"根本没压缩"的原始 pickle。**
+该发行版每个 slot 的头 4 字节直接是 `}q`（协议 2 的 PICS 开头），`zlib.decompress()` 必抛
+`Error -3 incorrect header check`。`rpc2_slots()` 原本 `except zlib.error: continue` 会把 slot 整条丢掉，
+于是 **extract / rpyc_extract / scan_* 全系列静默报 `say_nodes=7`（只有散文本 .rpy 那部分）**，
+退出码 0，报表长得像"这游戏几乎没台词"。修法：解不开就当原始载荷交下去，让 `load_script()` 的
+try/except 去判它是不是 pickle —— 已在 `tools/rpautil.py` 落地（注释里写明了症状）。
+判据：任何 .rpyc 数量 > 0 而 say 条数近乎 0，先打印一个 slot 的前 16 字节再怀疑游戏没内容。
+
+：slot 1 是转换前 AST，slot 2 是 `renpy.translation.restructure()` 之后的（`renpy/script.py` 的 `load_file` 里 `for slot in [2, 1]`）。要拿翻译相关的节点必须用 slot 2。
 
 ### 不需要引擎运行时就能反序列化 AST
 用 stub unpickler，避免导入 `renpy.ast`（那会拉起显示/音频子系统）：
@@ -156,7 +165,16 @@ def find_class(module, name):
 
 **为什么 `uwrap` 能被翻译**：屏幕上的 `Text` 也走 `renpy.substitutions.substitute(..., translate=True)` → `translate_string`（`renpy/text/text.py`、`renpy/character.py`）。所以只要字符串是 `_()` 包的字面量，`strings:` 表就能命中。
 
-**去重要求**：`translate <lang> strings:` 是**按英文串内容**全局匹配的，所以同一份英文在任何地方只会有一个译文。批量派工时必须在 prompt 里写死"同一份输入里英文完全相同的句子，译文必须完全相同"，并在生成阶段做 canonicalize。
+**去重要求**：`translate <lang> strings:` 是**第三个会静默少译的坑（Being a DIK 实测）**：`extract.py` 的 `looks_prose()` 会把
+**全大写喊话、`(内心独白)` 整行、`*{i}动作{/i}*` 独行**这类串当成"没有可译内容"直接丢弃 ——
+本作因此少收 **242 条**（占对白 0.6%），而它们恰好集中在派对口号与性场景（`MAGGOT! GET OVER HERE! NOW!`
+`WHAT THE FUCK IS WRONG WITH YOU!?` `Ass forward, pervert.` `...CUM-petition!`）。
+后果不是崩溃而是**这些行永远显示纯英文**，qa/apply 全部报绿，肉眼只在玩到才发现。
+两道处置：① 用 `tools/precedence_check.py` 拿"引擎真正会加载的那份脚本"反查覆盖（见 §18），
+它会把缺串写进 `localization/precedence_report.txt`；② 缺串**只追加新 id**
+（`g/gap_*.json` 那类），**绝不重跑抽取** —— 重跑会重排 id，让已回收的分片全部错位（§8 的记账前提）。
+
+**按英文串内容**全局匹配的，所以同一份英文在任何地方只会有一个译文。批量派工时必须在 prompt 里写死"同一份输入里英文完全相同的句子，译文必须完全相同"，并在生成阶段做 canonicalize。
 
 **两个会让统计失真的坑（都踩过）**：
 - 遍历时**必须排除 `tl/**` 的 `.rpyc`**，否则每种官方语言的译文都会被当成"待译英文"。本项目未排除时数是 112,687 条 / 570 万字符，排除后真实源文本只有 **59,201 条 / 300 万字符**——差了近一倍，且会把法/俄/土语句子混进英文表。
@@ -395,7 +413,8 @@ style.text.language = "eastasian"   # 走 UAX#14 断行，见 renpy/text/text.py
 
 | 引擎 | `config.font_name_map` | `config.font_replacement_map` |
 | --- | --- | --- |
-| 8.0.3 | **不存在**（`renpy/config.py` 里只有 `font_replacement_map`，见该文件 228 行） | 有 |
+| 8.0.3 | **不存在**（`renpy/config.py` 里只有 `font_replacement_map`，见该文件 228 行） | 有 || 8.0.3 | **不存在**（`renpy/config.py` 里只有 `font_replacement_map`，见该文件 228 行） | 有 |
+| **7.4.10** | **不存在**（`grep -n font_name_map renpy/config.py` 无命中） | 有（`config.py:225`） |
 | 8.1.2 / 8.4.2 / 8.5.2 | 有（`renpy/text/font.py`） | 有 |
 
 `renpy/config.py` 对未知属性走 `__getattr__` 并 **raise Exception('config.%s is not a known configuration variable')**，
@@ -428,6 +447,17 @@ init -1000 python:
   **注意测试假阴性**：自动化工具合成的 Ctrl 组合键和鼠标点击都可能送不进 SDL 窗口（普通按键如 space/方向键可以），所以"按了没反应"先怀疑输入通路，别急着判定绑定写错——交给真人按一次最省事。
 - 环境变量 `RENPY_LANGUAGE` 优先级最高
 - 环境变量 `RENPY_LANGUAGE` 优先级最高
+**7.4.10 还少一个更关键的变量：`config.always_shown_screens` 不存在**（那是 7.5 之后加的）。
+在 7.4 上挂全局屏幕要用 **`config.overlay_screens`**（`renpy/config.py:666`，由
+`renpy/display/core.py:3501 show_overlay_screens()` 消费；`00library.rpy:232` 就是用它显示导航/快菜单）。
+症状与 §6.4 同一家族：不是"没生效"，是 `Exception: config.always_shown_screens is not a known
+configuration variable`，整块 init 静默失败，热键屏幕根本没挂上。
+
+**`.rpy` 顶层不能写裸 Python 赋值。** `config.keymap["x"] = [...]` 直接放在文件里会报
+`line N: expected statement` 并让**该文件整个不加载**；包进 `init python:` 才对。
+这类 parse 错误只进 `log.txt`，不进 `traceback.txt` —— 只查后者会以为一切正常。
+7.4.10 的组合键命名与 8.x 一致（`00keymap.rpy` 里就有 `ctrl_noshift_K_c`），照抄即可。
+
 ### 7.1 退回英文的开关**不能**放在 `game/tl/<lang>/` 里（会自我注销）
 
 覆盖层装好之后玩家就没了退路：不少发行版**自带一个语言菜单屏幕，但入口是注释掉的死 UI**
@@ -585,6 +615,22 @@ init -1000 python:
    于是 `JumpOutException` 冒出 `run_context` 写 traceback（就是上面第 2 条的限定条件）。
    另外 `renpy.show_screen("menu_gallery")` 在 splashscreen 期间调会**静默无事发生**，
    截图抓到过场动画，看起来像"图鉴是黑的"——这也是要卡主菜单的第二个理由。
+0b. **同一台机器上再开一个实例来做验证，常常验不成（Being a DIK 实测三条）**：
+- `config.periodic_callbacks` **只在窗口拿到前台时才 tick**。用 `nohup ./Game.exe &` 起的第二个实例
+  窗口在后台，harness 的回调一次都不跑，**症状是"报告文件根本不存在"**，而不是报错。
+  要么用系统工具把它置前，要么改用不依赖回调的路径（下一条）。
+- `--warp` 会跳过游戏自己的初始化。本作 `splash.rpy:54` 引用 `discordrun`，该变量在正常流程里由
+  更早的语句定义 → warp 后直接 `NameError: name 'discordrun' is not defined`，
+  或者 `ScriptError: could not find label 'start'`。**warp 不是万能入口**，用它前先确认目标 label
+  不依赖游戏自己的 boot 变量。
+- 时间闸门在带 splashscreen 的游戏上必然踩雷：`00start.rpy` 先 `call _splashscreen`（本作是
+  `header.rpy` 的警告视频），十几秒内 `jump_out_of_context` 冒出的 `JumpOutException` 会穿过
+  `run_context` 写 `traceback.txt` 并把实例打死。`tools/selftest_template.rpy` 现在改成
+  **`renpy.get_screen("main_menu")` 为真才跳**，并且第一帧就无条件落一个
+  `selftest_report.txt.alive` marker（"报告没出现"从此能区分"回调没跑"和"跑到一半死了"）。
+  harness 里所有引擎自省都走 `_zz_g(lambda: ...)`：7.4.10 的 `config.__getattr__` 对未知名字抛的是
+  **裸 Exception**，`hasattr()` 挡不住，一个属性取不到就会把整份报告带走。
+
 1. **`RENPY_AUTO_LOAD=<存档名>` 环境变量**：启动即载入存档，直接进真实游戏界面。最有用的一招（前提是 `game/saves/` 里有存档；全新发行包通常没有）。
 > **启动方式会影响结论**：`setsid ./Game.exe &` 起的 Ren'Py 拿不到前台，`config.periodic_callbacks` 不再触发（harness 什么都不写，容易被误判成"代码没生效"）；直接 `./Game.exe > /dev/null 2>&1 &` 留在同一个 shell 里就正常。另外别把"生成 harness + 清报告 + 启动"整条链一起后台化，那会让轮询读到上一轮的旧报告——**生成和清理放前台，只后台化启动那一步**。
 2. **没有存档时怎么进剧情**：在 periodic 回调里执行 `renpy.jump_out_of_context("start")` —— 它 raise 的 `JumpOutException` 会冒泡到主菜单 context 的主循环并被正确处理，**等价于点 START**，且不像 `renpy.jump()` 那样跳过 store 初始化（见第 4 条）。实测能稳定进入 prologue 对白。
@@ -900,7 +946,22 @@ Replay(entry["label"], scope=scope, locked=False)()
 
 ---
 
+### 12.1 本轮新增的三个闸门工具（Being a DIK 0.8.2 沉淀，都在 `tools/`）
+
+| 工具 | 它挡什么 | 为什么必须有 |
+| --- | --- | --- |
+| `precedence_check.py` | "**引擎真正加载的那份脚本**里的每个 say 串，是否都在译文表里" | 带 overlay 归档（`zzscripts.rpa` 这类）的发行版同一脚本有两份不同文本；抽取顺序错了就译了读不到的那份，界面留英文且**没有任何一步会报错**。规则直接实现 §18 的四条，并复用 `override_audit.py` 的归档序与 md5 判定。注意它要排除 `tl/`（我们自己写的 `old "..."` 会被当成源文，把 260 条真缺口放大成 13,000 条假缺口）；退出码 1 = 有缺口 |
+| `normalize_terms.py` | 并发批次各造各的译名 | 55 组里 `cluck` 出现 3 种、`glory hole` 出现 4 种译法。重派一组只为改一个词是最贵的做法；这里按 `localization/terms_normal.json` 做**最长变体优先**的确定式替换并给出命中数 |
+| `postfix_zh.py` | 独白括号丢失 / 值首尾空格 / agent 自报的具名缺陷 | "写完不许回改"的契约必然导致若干 agent 把缺陷写进自报而不是文件。规则只做**机械可判定**的那一类（源文整行被 `( )` 包住 → 中文必须 `（）` 且成对），具名修正走 `localization/zh_fixes.json`；每次都报数量，改动前自动 `.bak-postfix` |
+
+顺序：`apply_trans` → `postfix_zh` → `normalize_terms` → `build_tl` → `qa` → `align_check --allow-file` →
+`style_audit --apply` → **再跑一次 `build_tl`**（前三个改的是真源 JSON，不是产物）。
+
+---
+
 ## 13. 一句话检查表
+
+
 
 1. **归档里有 `tl/<lang>/` 吗** → 有 → 按 identifier 连接复用官方译文（§3.5），只翻译缺口；这一步能省掉 90%+ 的量。
 2. 提取时排除 `tl/**`，过滤条件用"不含 CJK"而不是"纯 ASCII"。
@@ -1127,7 +1188,19 @@ python tools/make_selftest.py localization/en-zh.json mix
 | 启动成本 | — | `Loading script` 冷 14s、热 5.5s（原始约 2s） |
 | 全程墙钟 | — | 约 80 分钟（含侦察、字体、两轮返工、游戏内验证） |
 
-**模式 B 基线（The Tutor 1.0，2026-10-05，引擎 8.3.7）**：323 条对白 / 3.89 万字符 / 0 条自带译文 → 全部主线程翻译（3 个分片），无 agent 派发；产物 1 个 `script.rpy`（strings 表）+ 1 个 `00zz_bilingual.rpy` + 1 个字体，共 5 个新增文件；`qa.py` 与 `align_check.py` 均 FAILURES 0；游戏内一次启动即出双语，无 traceback。墙钟约 40 分钟，其中 3 次启动自检占了大头（每次 ~1.5 分钟，因为要等过场动画）。
+**模式 B 基线（The Tutor 1.0，2026-10-05，引擎 8.3.7）****归档型 + 无官方译文基线（Being a DIK 0.8.2，2026-10-07，引擎 7.4.10u）**：
+`.rpa` 35 个、脚本 465 份（`.rpyc` 378 + 归档内死重 `.rpy` 86 + 磁盘散文件）；抽取去重后
+**源串 40,557 / 对白 38,298 条 / 159 万字符**，归档里**没有任何官方译文**（`tl/` 命中 0）→ 全量自译。
+切 **55 组 × 700 条 / ≤45,000 字符**（首批用 700，回收正常组仍在 3-6 次工具调用、37-97 万 token；
+跑偏的到 12-26 次 / 85-465 万，最贵的是 **占着并发槽 10 分钟以上**，不是 token）。
+产物 **105 个 `tl/zh/*.rpy` / 38,225 对 / 99.81% 覆盖**，字体是 `--cjk-font` 从系统复制的 NotoSansSC-VF，
+`qa FAILURES 0`、`align_check` 硬失败 4 条（`DIK`/`DIKs` 单复数）、`style_audit` 36 处机械修正、
+`uninstall --dry-run` 恰列 `game/tl/zh/**` + 字体 + 我手写的热键文件。
+**三条本轮新踩并修掉的引擎代际坑**：RPC2 slot 未压缩（§2）、`config.always_shown_screens` 不存在（§7）、
+`font_name_map` 不存在（§6.4）。**未验证项**：游戏内双语截图（见 §9.0b 第二实例三条），
+静态与 `--lint` 全绿不等于亲眼见过渲染 —— 这条在交付里必须写明，不能算完成。
+
+：323 条对白 / 3.89 万字符 / 0 条自带译文 → 全部主线程翻译（3 个分片），无 agent 派发；产物 1 个 `script.rpy`（strings 表）+ 1 个 `00zz_bilingual.rpy` + 1 个字体，共 5 个新增文件；`qa.py` 与 `align_check.py` 均 FAILURES 0；游戏内一次启动即出双语，无 traceback。墙钟约 40 分钟，其中 3 次启动自检占了大头（每次 ~1.5 分钟，因为要等过场动画）。
 
 **模式 B + 自带明文官方译文基线（By Justice or Mercy v25，2026-10-05，引擎 8.5.3）**：
 18,608 条唯一串 / 18,164 条对白 / 64.9 万字符 → `tl_reuse.py` 复用 **18,544 条（99.65%）**，

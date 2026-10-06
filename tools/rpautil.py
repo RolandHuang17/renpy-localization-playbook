@@ -209,10 +209,15 @@ def rpc2_slots(raw):
             break
         if start <= 0 or length <= 0:
             continue
+        chunk = raw[start : start + length]
         try:
-            payload = zlib.decompress(raw[start : start + length])
+            payload = zlib.decompress(chunk)
         except zlib.error:
-            continue
+            # Being a DIK 0.8.2 (7.4.10u) ships RPC2 slots UNCOMPRESSED: the payload
+            # starts right at the pickle (...). Dropping the slot here made
+            # every AST tool report "0 say nodes" for that distribution.
+            payload = chunk
+        out.append((slot, payload))
         out.append((slot, payload))
     out.sort(key=lambda t: -t[0])  # slot 2 before slot 1
     return out

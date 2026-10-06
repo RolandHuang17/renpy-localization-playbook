@@ -30,17 +30,26 @@ init 9999 python:
             out.append("style introspection unavailable: %r" % (exc,))
         return out
 
+    def _zz_g(f):
+        # One unavailable attribute must not cost the whole report: 7.4.10's config
+        # __getattr__ raises a bare Exception (not AttributeError) for names that only
+        # exist in newer engines, so hasattr() would propagate it too.
+        try:
+            return repr(f())
+        except Exception as exc:
+            return "unavailable (%r)" % (exc,)
+
     def _zz_write(tag):
         rows = ["=== %s ===" % tag,
                 "elapsed              : %s" % round(time.time() - (_zz["t0"] or 0), 1),
-                "preferences.language : %r" % (renpy.game.preferences.language,),
-                "known_languages      : %r" % (sorted(renpy.known_languages()),),
-                "default_language     : %r" % (renpy.config.default_language,),
-                "font_name_map        : %r" % (dict(renpy.config.font_name_map),),
-                "afm_enable/afm_time  : %r / %r" % (renpy.game.preferences.afm_enable,
-                                                     renpy.game.preferences.afm_time),
-                "text_cps             : %r" % (renpy.game.preferences.text_cps,),
-                "context.current      : %r" % (renpy.game.context().current,)]
+                "preferences.language : " + _zz_g(lambda: renpy.game.preferences.language),
+                "known_languages      : " + _zz_g(lambda: sorted(renpy.known_languages())),
+                "default_language     : " + _zz_g(lambda: renpy.config.default_language),
+                "font_name_map        : " + _zz_g(lambda: dict(renpy.config.font_name_map)),
+                "afm_enable/afm_time  : " + _zz_g(lambda: (renpy.game.preferences.afm_enable,
+                                                            renpy.game.preferences.afm_time)),
+                "text_cps             : " + _zz_g(lambda: renpy.game.preferences.text_cps),
+                "context.current      : " + _zz_g(lambda: renpy.game.context().current)]
         rows += _zz_style_info()
         rows.append("")
         rows.append("--- translate_string on real source strings ---")
@@ -65,10 +74,27 @@ init 9999 python:
         if _zz["t0"] is None:
             _zz["t0"] = now
         el = now - _zz["t0"]
-        if el > 12 and _zz["stage"] == 0:
+        if not _zz.get("marked"):
+            # unconditional marker: proves the callback really runs, so "no report"
+            # means "died later" and not "never hooked up"
+            _zz["marked"] = True
+            try:
+                open(_zz_rep + ".alive", "w", encoding="utf-8").write(
+                    "tick at " + time.strftime("%H:%M:%S") + chr(10))
+            except Exception:
+                pass
+        # Games that open with a splash screen (Being a DIK: 00start.rpy calls
+        # _splashscreen, which runs header.rpy's warning videos) must NOT be jumped out
+        # of: the JumpOutException escapes run_context and writes traceback.txt.
+        # Wait until the real main menu is on screen. Time-based gates fire mid-splash.
+        try:
+            at_menu = bool(renpy.get_screen("main_menu"))
+        except Exception:
+            at_menu = False
+        if at_menu and el > 1.0 and _zz["stage"] == 0:
             _zz["stage"] = 1
             _zz_write("before jump")
-        if el > 16 and not _zz["jumped"]:
+        if at_menu and el > 3.0 and not _zz["jumped"]:
             _zz["jumped"] = True
             renpy.jump_out_of_context("zz_probe")
         if _zz["jumped"] and el > _zz["next_shot"] and _zz["stage"] < 3:

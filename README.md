@@ -15,7 +15,8 @@
 
 | | 判据 | 抽取 / 复用工具 |
 | --- | --- | --- |
-| **A 归档型** | `game/` 下只有 `*.rpa` + `tl/None/`，没有散落 `.rpy` | `tools/extract.py`（解 RPA3 索引 + RPC2 容器 + stub unpickler 反序列化 AST），自带官方译文在归档里时按 identifier 连接 |
+| **A 归档型** | `game/` 下只有 `*.rpa` + `tl/None/`，没有散落 `.rpy` | |
+| **A-overlay 归档型且装了 mod/更新归档** | 同一个脚本在两个归档里各有一份（`zzscripts.rpa` 这类） | 抽取之后**必须**跑 `tools/precedence_check.py`：它按 §18 的引擎优先级还原"引擎真正加载的那份"，报告表里没有的串（这类发行版会译到读不到的那一份，界面静默留英文） `tools/extract.py`（解 RPA3 索引 + RPC2 容器 + stub unpickler 反序列化 AST），自带官方译文在归档里时按 identifier 连接 |
 | **B 散文本型** | `game/*.rpy` 能直接读到明文 | `tools/rpy_extract.py`（只收 `label` 块内的 say 语句） |
 | **B-compiled 散文本但带 `.rpyc`** | `game/` 下 `.rpy` 和 `.rpyc` 成对出现 | `tools/rpyc_extract.py`（反序列化引擎真正加载的 AST 取 `Say.what`；正则扫明文会因认不出说话人变量而整批漏句） |
 | **B+ 散文本 + 自带明文官方译文** | `game/tl/<lang>/*.rpy` 也是明文 | 上一步之后接 `tools/tl_reuse.py`（按**内容**配对，省掉 99% 翻译量） |
@@ -24,7 +25,10 @@
 
 ## 用法
 
-把 `RENPY_LOCALIZATION_PLAYBOOK.md` 和 `tools/` 一起复制到游戏根目录，然后：
+把 `RENPY_LOCALIZATION_PLAYBOOK.md` 和 `tools/` 一起复制到游戏根目录（**先确认游戏目录里没有旧版 `tools/`**：
+`cp -r tools .` 在旧目录存在时会变成 `tools/tools/`，你会拿着一套过期工具跑完整项目——本轮就这么踩过，`diff` 两边才看得见）。
+
+引擎实测覆盖：7.4.10 / 8.0.0 / 8.0.3 / 8.1.2 / 8.3.7 / 8.4.2 / 8.5.2 / 8.5.3。然后：
 
 ```bash
 # 模式 B（散文本）示例。有 .rpyc 就换成 tools/rpyc_extract.py（多一个 --reuse）
