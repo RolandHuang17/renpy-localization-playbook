@@ -96,7 +96,12 @@ def harvest(game_dir):
     speakers, files_scanned, failed = {}, [], 0
 
     for path in rpyc:
-        rel = os.path.relpath(path, os.curdir).replace("\\", "/")
+        try:
+            rel = os.path.relpath(path, game_dir).replace("\\", "/")
+        except ValueError:
+            # Windows: relpath() raises when the two paths sit on different drives,
+            # which is normal when --game is an absolute path elsewhere.
+            rel = os.path.basename(path)
         try:
             loaded = R.load_script(open(path, "rb").read())
         except Exception as exc:
@@ -226,6 +231,13 @@ def main():
         else:
             r["zh"] = ""
             r["zh_from"] = ""
+
+    if not recs:
+        raise SystemExit(
+            "extracted 0 strings. Not a clean result - the .rpyc reader returned "
+            "nothing for every file (unsupported engine generation, wrong --game, or "
+            "the scripts live in an archive: use r_extract for mode A). A report that "
+            "says '0 untranslated' after this is a false pass, not a finished job.")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:

@@ -64,7 +64,7 @@
 
 | 观察 | 结论 |
 | --- | --- |
-| `game/` 下同时有 `.rpy` **和** `.rpyc`（发行包自带编译产物） | **模式 B 改走 `tools/rpyc_extract.py`，不要正则扫明文**：引擎加载的是时间戳更新的那份（通常是 `.rpyc`），而正则靠 `Character("字面量")` 认说话人，`x = Character(动态名)` / 玩家命名的主角整个认不出来——实测漏 2,541 条（占全部对白 12.6%），漏的正好是台词最多的主角 |
+| `game/` 下同时有 `.rpy` **和** `.rpyc`（发行包自带编译产物） | **模式 B 改走 `tools/rpyc_extract.py`，不要正则扫明文**：引擎按 **md5** 选份，不看时间戳（`.rpy` 源文摘要 == `.rpyc` 尾 16 字节才用编译产物，否则现场重编译并覆盖它，见 §18.1），而正则靠 `Character("字面量")` 认说话人，`x = Character(动态名)` / 玩家命名的主角整个认不出来——实测漏 2,541 条（占全部对白 12.6%），漏的正好是台词最多的主角 |
 | 有 `game/saves/`、`game/.../` 且能读到 `.rpy` 明文 | **模式 B**：用 `tools/rpy_extract.py`（§14 的 B 分支）。不需要解归档，但**仍然走 `tl/` 覆盖层**，不要直接改源码——改了就没法一键撤销 |
 | 模式 B 且 `game/tl/<lang>/*.rpy` 是**明文**（不是归档里的 `.rpyc`） | **模式 B + 自带官方译文**：`rpy_extract.py` 抽源文，再用 `tools/tl_reuse.py` 按内容配对官方译文（§3.6）。这是 By Justice or Mercy v25 的形态，18,608 条里 18,544 条直接复用，缺口只剩 64 条 |
 | `game/` 下只有 `*.rpa` + `tl/None/`，无散落 `.rpy` | **本手册的主场景**：脚本被编译进归档，必须走提取 + `tl/` 覆盖层 |
@@ -812,6 +812,14 @@ screen scenes:
 游戏一更新就得重做。所以本仓库的 B 路线要落成**生成器**（`tools/build_bookmarks.py` 就是这个思路：
 条目、范围、门控、播种全部从 `.rpyc` AST 里读出来再生成），而不是手写覆盖层。
 
+**C 路线还缺最后一环：填完 flag 要请游戏自己重算计数。** 那个 mod 的解锁函数在 442 行
+`persistent.xxx = True` 之后立刻调游戏自己的 `updatePersistentRenderCount()`
+（`1NewCheatMode.rpy:3008`），面板上还调 `calcRenders/calcScenes/calcWallpapers`（`:696-699`）。
+只写 flag 不重算，图鉴标题的“已解锁 x / y”就分子分母对不上（数字停在 0 或停在旧值），
+玩家以为没解锁。找这个函数的 grep 面：`def .*[Pp]ersistent` / `def calc` / `update.*Count`，
+在游戏的 `gallery`/`stats` 脚本里通常紧邻 `totalScenes`、`totalRenders` 这类分母常量。
+**A 路线（翻死开关）不需要这一步** —— 门控表达式自己决定显不显示，计数走原逻辑；这条只在被迫走 C 时补。
+
 ### 11.4 冷进"未硬化"场景要补作者自己补的那几个变量
 
 这条是 §11.3 第 2 点的进阶版，也是 Being a DiK 那个 mod 没做、但本作必须做的一件事。
@@ -877,6 +885,7 @@ Replay(entry["label"], scope=scope, locked=False)()
 | `tools/style_audit.py` | **跨批次风格闸门**（§10.5）：括号全/半角、`...`→`……`、`--` 不许变 `——`、`{b}X's{/b}` 英文所有格残渣、`{b}` 里没译的强调词、`daddy` 撞 `爸爸`。`--apply` 只做机械项并先备份真源 JSON，其余只报告 | 真源 JSON → 就地改写 + 分类计数报告 |
 | `tools/scan_bookmarks.py` | **路线书签的场景枚举器**（§17）：从引擎真正加载的 `.rpyc` AST 列出全部 `label`，给出每个场景的节点范围、`_in_replay` 头/尾守卫、尾跳目标、区间外绕行清单（`escapes`）、出场说话人、作者自己的状态播种行；`--dump-candidates` 按规则词表出候选批次喂判定 agent。自带覆盖率自检（`.rpy` 里 `_in_replay` 出现数 vs 扫到数），检测一滑会直接告警而不是静默少报 | `game/**/*.rpyc` → `scenes.json` + `scenes_report.txt` + 候选批 |
 | `tools/build_bookmarks.py` | 把 `scenes.json` + `verdicts_*.json` + `bookmark_rules.json` 编成 `game/cc_bookmark_data.rpy`（`define cc_bm_entries`）。最值钱的是 **picks 推导**：对每对成对分支，找一个 menu 的两个选项分别跳到这两个 label，记下该选第几项；推不出来就进 review 不猜。第二个增量是 **播种学习**：扫硬化场景的 `if _in_replay:` 块收集 `var = persistent.x`，写进每条书签的 `seed`（§11.4）。两份输入路径都写错时它会直接报错而不是产出空数据文件。jump 从 `.rpy` 文本解析，因为 `Menu.items` 第二项是条件串不是块（§17.7） | 三份输入 → 数据 `.rpy` + `bookmark_review.txt` |
+| `tools/override_audit.py` | 改文件之前先问“引擎到底会加载哪一份”（§18.1）：把磁盘/归档按完整名去重、归档 `sorted()+reverse()`、`.rpy`↔`.rpyc` 靠 md5 配对这三条规则原样实现一遍，报出“存在但永远读不到”的条目、磁盘+归档双注册、以及会被就地重写的 `.rpyc`。`--overlay` 能模拟“把这个 mod 装进去之后”的状态 | `game/` + 各 `.rpa` → stdout 审计报告 |
 | `tools/repair_json.py` | 回收侧机械修复：agent 手写的几百行 JSON 会出现"key 丢了开引号""值里有未转义引号"。按行修好后**必须与 group 的 id 集合完全对齐才写回**，对不上就退回重派——重派一组比误信一次修复便宜 |
 | `tools/make_selftest.py` + `tools/selftest_template.rpy` | §9.0 的现成 harness。探针语句从真源 JSON 生成；`mix` 模式按排版风险各取一条（最长行 / 带 `{size=26}` 补述 / 带名字框的台词 / 纯拟声单行）。跑完自动写 `selftest_report.txt`（`preferences.language`、`known_languages`、`font_name_map`、每条 `translate_string` 命中与否）和 12 张截图 |
 | `tools/align_check.py` | 对齐与漏译审计（见 §8.5）。`apply_trans.py` 的标签守恒**抓不到"整对错位一行"**，因为错位后标签仍然相等；这里用"英文里出现的专名必须也出现在中文里"+"中文里不许残留小写英文单词"两个判据补上。`--only-names` 让显示名表成为唯一硬判据，`[...]` 插值不算漏译 | JSON → `align_report.txt`，非零退出码表示有硬失败 |
@@ -964,12 +973,31 @@ Replay(entry["label"], scope=scope, locked=False)()
     运行时在**回放外**求值后经 `scope=` 注入（§11.4，实测 `Zedtest` vs `Dotty`）。
 42. **运行时用 `renpy.has_label()` 防呆、用 `renpy.loadable("...rpyc")` 探测版本**，
     游戏更新后标签搬走时提示而不是崩（§11.3 第 1 条）。
+43. **`.rpy` / `.rpyc` 谁生效看 md5，不看时间戳**：`.rpy` 源文摘要等于 `.rpyc` 末尾 16 字节
+    才用编译产物，否则现场编译 `.rpy` **并把那个 `.rpyc` 覆盖重写**（§18.1）。
+44. **复用游戏已有的文件名就不是“纯新增”**：首启动会毁掉原编译字节。备份与还原都要
+    `.rpy` + `.rpyc` **成对**处理，交付说明里写清（§18.2）。能起新名就起新名。
+45. **磁盘按“完整相对路径名（含扩展名）”遮蔽归档**：放一个 loose `x.rpy` 挡不住归档里的
+    `x.rpyc`，两条会同时注册；8.x 下 `script_files.sort()` 比较 (name,str) 与 (name,None) 会抛。
+    动手前先跑 `tools/override_audit.py`（§18.1 规则 2）。
+46. **归档之间是字典序最后者优先**（`sorted()` 再 `.reverse()`），所以官方更新包/DLC 常用
+    `zz*.rpa` 压过 `scripts.rpa`；你自己的覆盖归档要清楚自己站在这顺序的哪一格（§18.1 规则 3）。
+47. **归档里的 `.rpy` 永远不会被当脚本加载**，只有 `.rpyc`/`.rpymc` 有用；归档里成对出现的
+    `.rpy` 按死重处理（§18.1 规则 4）。
+48. **走 C 路线填完 persistent 要调游戏自己的计数函数**（`updatePersistentRenderCount` 一类），
+    否则“已解锁 x/y”分子分母对不上，玩家以为失败（§11.3）。
+49. **老引擎（7.x / py2）会让我们的 AST 工具静默返回 0**：`renpy.python.RevertableDict` 与
+    `__builtin__` 不在 alias 表 ⇒ `load_script()` 返回 None；slot2 还是**扁平语句表**、
+    `Label.block` 为空 ⇒ 所有按块统计的字段读 0。两种都要显式失败，不出漂亮空报表（§18.5）。
+50. **作者自己的 `_in_replay` 惯用法优先复用**：`$ renpy.end_replay()` 是尾守卫、
+    `if _in_replay: jump <主干>` 是退出斜坡、`"选项" if not _in_replay:` 在回放期藏掉分叉；
+    扫描器要认这三种，否则会把能干净结束的场景判成“不安全冷进”（§17.9）。
 
 ---
 
 ## 14. 新项目执行手册（照抄顺序即可）
 
-前提：把 `tools/`（20 个 `.py` + 1 个 harness 模板）和这份 md 一起复制到新游戏根目录，`cd` 到该目录。所有脚本只依赖标准库 + 本机 Python 3，不需要装包。
+前提：把 `tools/`（21 个 `.py` + 1 个 harness 模板）和这份 md 一起复制到新游戏根目录，`cd` 到该目录。所有脚本只依赖标准库 + 本机 Python 3，不需要装包。
 
 **第 0 步：拷完工具先做一次 `--help` 扫描**，把"模块顶层就能炸"的问题在开工前一次性暴露：
 
@@ -1183,6 +1211,14 @@ picks 自动推导出 2 处（ch8 `menu:7055` → #1 Submissive.；ch2 `menu:201
 - `qa.py` 报 `dup` → 生成器去重跨 kind 没做好，游戏会启动即崩（§4）。
 - `qa.py` 报 `ghost` → `old` 和源串不逐字节相等，多半是转义顺序或 `\n` 处理错（§4），这类条目会静默不生效。
 - 截图满屏豆腐块 → 字体三层挂载缺一层，尤其 `translate <lang> style`（§6.1）。
+
+**参照物（不是我们的汉化项目，只用来取证与对照）**：Being a DiK 0.8.2/0.8.3 发行版，
+引擎 **7.4.10u / 8.0.0u（Python 2）**，`game/` 里同时有 loose `.rpy`+`.rpyc`、官方更新归档
+`zzscripts.rpa`（291 条：86 个改造过的 `.rpyc` + 84 个死重 `.rpy`）、社区作弊面板
+`1NewCheatMode.rpy`（3314 行，46 define / 6 screen）与社区图鉴解锁器 `gallery.rpy`
+（1205 行，§11.3 B 路线范本）。它贡献了 §11.3 / §11.4 / §17.9-§17.11 / §18 的全部证据，
+也贡献了 §18.5 那条 7.x 工具坑。引擎结论因此覆盖 7.4.10 / 8.0.0 / **8.0.3** / 8.1.2 /
+8.3.7 / 8.4.2 / 8.5.2 / 8.5.3。
 
 
 ---
@@ -1485,3 +1521,174 @@ UI 截图必须走**真实路径** `ShowMenu("…")()`。`renpy.show_screen(...)
 `bookmark_groups/` / `verdicts_*.json` / `bookmark_titles.json` / `bookmark_review.txt`
 一律 gitignore，和 `en-zh.json` 同级处理。`game/cc_bookmarks.rpy` 与
 `game/cc_bookmark_data.rpy` 是**产物**，也不进公开仓。
+
+
+### 17.9 优先复用作者自己的 `_in_replay` 惯用法（三种，各管一件事）
+
+§11.4 讲的是"冷进场景要补播种"，§17.3 讲的是"我们用停车闸把越界掐断"。Being a DiK 的
+`update4.rpy` 里数出 26 处 `_in_replay`，暴露出作者自己其实已经把这三件事写全了 —— **能复用就
+别自己造**，而且复用作者的写法天然贴原意，游戏更新时也更不容易变：
+
+```rpy
+label ep4_jill_lewd_label:                      # 尾守卫的第二种写法（本作 10 处）
+    if _in_replay:
+        $ renpy.end_replay()                    # ← 官方自己的"到此为止"，比我们的熔断便宜得多
+
+label wt_ep4_trymayajosy:                       # 退出斜坡（:4531）
+    ...
+    if _in_replay:
+        jump ep4_kiss_jm_label                  # ← 回放跑完自动回到主干，不用我们猜范围
+
+menu:                                           # 藏掉分叉（:3049 / :4574）
+    "Don't kiss her" if not _in_replay:         # ← 回放期不让玩家拐进未播种的分支
+```
+
+1. **`$ renpy.end_replay()` 就是尾守卫**。我们的扫描器原先只认 `return`，把这种块按
+   "`$` 开头 = 播种行"归错类，于是 `tail_guard=False`，一个能干净结束的场景被判成"不安全冷进"
+   —— 在 DiK 上实测：修好后 stop-only 场景从 0 变 3，`safe_cold_entry` 口径整体变准。
+2. **`if _in_replay: jump <主干 label>` 是作者给的出口**。落点场景有这种守卫时，书签结束后的
+   归属已经写好了，我们不该再用"行号范围"去猜；`scan_bookmarks.py` 现在把它记成 `exit_ramps`。
+3. **`"选项" if not _in_replay:` 解释了一件我们见过的事**：§17.4 说"判不出方向就落回真菜单弹给
+   玩家"，但弹出来的菜单里有时会多出一些**根本不该在回放里出现**的选项（选了就把玩家带进没播种的
+   分支）。作者用这个条件把这类选项藏掉了。遇到"回放里菜单选项数量跟正玩时不一样"，先怀疑这条，
+   别急着以为是我们的自动选点坏了。
+4. 头守卫块里除了 `$ var = persistent.x`，还常见 `hide screen phone_screen`、`play music`。
+   冷进场景"手机上没人/没 BGM"这类违和感答案就在同一个块里。§11.4 的播种表目前只取赋值；
+   要顺手把 `hide`/`play` 也学走可以，但那是**改观感不是修正确性**，别默认打开。
+
+### 17.10 可切换的选项标注：`$mod_choices` 数组
+
+`1mod.rpy` 全部 12 行，就是把颜色前缀集中起来：
+
+```rpy
+define m_c1 = "{color=#33ff33}"        # 六个前缀常量，全局换色/撤色只改这里
+define m_c2 = "{color=#E6F100}"
+define tmp_mod = ""
+```
+
+然后每个 `menu:` 前一行重填数组（`update4.rpy` 里 14 处），选项文本写成下标引用：
+
+```rpy
+$ mod_choices = ["(+Derek)", "(Ends scene)", "(-DIK)", "(+DIK)", "", ""]
+menu:
+    "Try for something more" if not ep4_cam_mona:
+        "[m_c1][mod_choices[3]]"        # ← 数组里第 4 个就是这条的注解
+    "Keep Jade a secret":
+        "[m_c2][mod_choices[1]]"
+```
+
+关掉的办法优雅：`persistent.mod_wt_enabled` 为假时整个数组置成空串 ⇒ **选项原文一字不改**。
+这个"关掉即原文"的思路正是用户口径（默认解锁/双语/标注都要能自己关），值得抄。
+
+三条路线的取舍，按"要不要动场景脚本"排：
+
+| 做法 | 要动场景脚本 | 运行时可切换 | 什么时候选它 |
+| --- | --- | --- | --- |
+| §16：覆盖 `screen choiceN()` + `tools/scan_routes.py` 算徽章 | 否 | 是 | **默认正解**，纯新增，游戏更新只是标记少几个不会崩 |
+| §17.4：patch `store.menu` 打点 | 否 | 是 | 只在书签回放期生效，配合停车闸用 |
+| `$mod_choices` 前缀常量 | **是**（每个 menu 前一行） | 是 | 只有当你**已经**对这个文件有覆盖层时才划算（例如已经在做 B 路线反编译）；否则一次更新就把几十处手工插入全废掉 |
+
+### 17.11 安装自检：让游戏自己报告"叠加层没加载上"
+
+`1NewCheatMode.rpy:3059` 在主菜单上画一条 "Mod not installed correctly"，判据是
+`renpy.loadable("1NewCheatMode.rpyc")` —— **思路值得直接搬进汉化层**：开屏显示
+"覆盖层 vN 已加载 / 未加载"，比让用户靠"文字怎么还是英文"发现装错目录强得多。
+
+但**别照抄它的 probe**：`.rpyc` 是引擎在首次启动时才生成的（§18.1 规则 1），第一次运行必然
+报"没装好"。三种判据按可靠性排：
+
+```rpy
+init -999 python:
+    cc_layer_marker = True                      # ③ 最稳：查自己 define 的标记，与文件系统解耦
+
+if not renpy.loadable("cc_localization.rpy"):   # ② 可以：probe 自己的 .rpy（它是随包发的）
+    ...
+# if not renpy.loadable("cc_localization.rpyc") # ① 不要用：首启动时它还不存在
+```
+
+---
+
+## 18. 文件加载与覆盖语义（引擎源码取证）
+
+§7（覆盖层）、§11.3（B 路线同名覆盖）、§17（书签数据文件）全都建立在
+"我加的 loose 文件会盖掉归档里的同名内容"这句话上。这句话**只在特定条件下成立**，
+而且我原先在 §2 把判据写成了"引擎加载时间戳更新的那份" —— 那是错的。下面四条都是从引擎
+源码逐行读出来的（8.0.3 与 7.4.10 各读一遍），再拿一份同时有 loose 文件、官方更新归档和
+社区 mod 的真实发行版实测对上的。
+
+### 18.1 四条规则
+
+| # | 规则 | 引擎出处 | 实测证据 |
+| --- | --- | --- | --- |
+| 1 | `.rpy` 与同名 `.rpyc` 并存时比的是 **md5**：`.rpy` 源文摘要 == `.rpyc` 末尾 16 字节 ⇒ 用编译产物；不等 ⇒ 现场编译 `.rpy` **并把这个 `.rpyc` 覆盖写回**。`mtime` 全程不参与 | 8.0.3 `renpy/script.py:735-765`；7.4.10 `renpy/script.py:739-770`（写回在 `write_rpyc_md5`，`:644`） | DiK 安装目录里 `gallery.rpy` 的 mtime 是 2021-12-06，`gallery.rpyc` 的 mtime 是用户**当天第一次启动游戏**的那一刻，两者摘要一致 ⇒ `.rpyc` 是引擎重编译出来的 |
+| 1b | 摘要的**输入**也分版本：8.x 哈希原始字节（`open(fn,"rb")`），7.4 先按文本读、换行归一后再编码。所以同一份带 CRLF 的 `.rpy` 在两个引擎下摘要不同 | 8.0.3 `script.py:736-737`（`open(rpyfn, "rb")`）vs 7.4 `script.py:740-743`（`open(rpyfn, "rU")` 再 `.encode("utf-8")`） | `tools/override_audit.py` 两种都算，直接报"哪条规则对上了"，避免猜引擎代际 |
+| 2 | **去重发生在"完整相对路径名（含扩展名）"层面，磁盘先于归档**（`add()` 里 `if fn in seen: return`）。所以 loose `x.rpy` **挡不住**归档里的 `x.rpyc` —— 两个不同名字，同一个逻辑脚本被注册两次，引擎两份都加载；8.x 还会在 `script_files.sort()` 比较 `(name,str)` 与 `(name,None)` 时抛 `TypeError` | 8.0.3 `renpy/loader.py:336-351`（`add` 里的 `if fn in seen: return`）、`:412-429`（filesystem 回调先注册，归档回调在 `:444`）、`:97` 注释；`renpy/script.py:252-262`。7.4 的 `add` 在 `loader.py:321-336` | DiK：磁盘 `update4.rpy` + `update4.rpyc` 把 `zzscripts.rpa` 里那对**同名**条目整对挡掉（审计报 90 条"存在但读不到"） |
+| 3 | **归档之间字典序最后者优先**：`config.archives` 先 `sorted(os.listdir)` 再 `.reverse()`，所以 `zzscripts.rpa` 排在 `scripts.rpa` 前面 | 8.0.3 `renpy/main.py:413-422`（`sorted(os.listdir(dn))` 循环 + `config.archives.reverse()`）；7.4 `main.py:405-414` | `zzscripts.rpa` 的 86 个改造 `.rpyc` 确实压过官方 `scripts.rpa`/`scripts_season2.rpa` —— 这就是官方"DLC/更新包"的挂载方式 |
+| 4 | **归档里的 `.rpy` 永远不会被当脚本加载**：`if fn.endswith(".rpy") and dir is None: continue` | 8.0.3 `renpy/script.py:252-254`（`if dir is None: continue`）；7.4 同逻辑在 `:240-242`；另外 `script.py:595-598` 对从归档里加载 `.rpy` 的尝试直接抛异常 | `zzscripts.rpa` 里 84 个 `.rpy` 全是死重，只有 `.rpyc` 有效 |
+
+### 18.2 可逆性推论（修正 §11 的"删掉新增文件即还原"）
+
+* **用新文件名 = 真·纯新增**：引擎为新 `.rpy` 生成的 `.rpyc` 孪生也属于我们这批新文件，
+  删的时候两个一起删就干净了。我们 `cc_*` / `ccg_*` 前缀的做法是对的，现在说得出**为什么**对。
+* **复用游戏已有的文件名 ≠ 纯新增**：首次启动就会把游戏原本那份 `.rpyc` **原地重写**，原编译字节
+  丢失；此时"只删我们的 `.rpy`"没用的，引擎会继续加载已经被改写的 `.rpyc`。所以
+  **备份和还原都要 `.rpy` + `.rpyc` 成对处理**，交付说明里要写死这条。B 路线（unrpyc 反编译覆盖）
+  必然落在这个类别里 —— 它不是"零侵入"，别在汇报里那么说。
+* 动手前先跑 `tools/override_audit.py`（§18.3），它能当场列出你这次会不会撞进第二类。
+
+### 18.3 `tools/override_audit.py`：改文件之前问一句"到底加载哪份"
+
+```bash
+python tools/override_audit.py --game game                     # 现状
+python tools/override_audit.py --game game --overlay /path/mod # 模拟"把这个 mod 装进去之后"
+python tools/override_audit.py --game game --mark cc --show-all # 只看自己的叠加层
+```
+
+输出四段，前三段都是"问题"而不是信息：
+① **存在但永远读不到**的脚本条目（被磁盘或更早的归档占了名）；
+② **同一逻辑名磁盘+归档双注册**（§18.1 规则 2 那个坑）；
+③ **会被就地重写的 `.rpyc`**（§18.2）；
+外加一段 INFO：归档里那些当死重的 `.rpy`。
+DiK 上实测：90 / 0 / 0 + 84 条死重 —— 0 条待重写，恰恰因为引擎当天已经重写完了，这本身就是规则 1 的证据。
+
+### 18.4 "我改了没生效"的排障顺序
+
+1. 先跑 `override_audit.py`：你的文件名有没有被磁盘/更早的归档占掉；
+2. 再看 md5 配对：改了 `.rpy` 却留着同名的旧 `.rpyc`，在 8.x 下是**会**生效的（现场重编译），
+   在"归档 + loose"混合布局里则可能是另一份抢先；
+3. 以上都干净，才怀疑是自己代码写错。
+
+反过来这条诊断法很好用：**拿 loose 文件和归档里的同名条目比 md5 / 逐行 diff**，就能判断某个
+mod 到底改了内容还是只改了分发方式。本轮就是这样发现：mod 作者往 `zzscripts.rpa` 里塞了打过
+补丁的 `update4`，但磁盘上那对 `update4.rpy`/`.rpyc` 先占了名 ⇒ **他改的那两行永远不执行，
+而且一声不响**。
+
+### 18.5 7.x 引擎会让所有 AST 工具静默返回 0（本轮修掉，附两条根因）
+
+症状最毒：`rpyc_extract.py` 对 DiK 报 `untranslated: 0`、`speakers: {}`，报表长得像"这游戏没台词"，
+退出码 0。修好后同一命令拿到 **2579 条 / 37 个说话人**。两条根因都在 `rpautil.py`：
+
+1. **类名没对上**：7.x 的 pickle 引用 `renpy.python.RevertableDict` 和 `__builtin__`（单数）下的
+   内建类型，我们的 alias 表只有 8.x 的 `renpy.revertable` / `builtins` ⇒ 落到 `Stub` ⇒
+   协议 2 对 dict 子类做 item 赋值时炸 ⇒ `load_script()` 把异常吞了返回 `None`。
+   修：补 py2 alias，并加 `_DictState`/`_ListState`（能接住 pickle 附加的 BUILD state）。
+2. **slot2 是扁平语句表**：7.x 存的是"8331 条按执行顺序排好的语句列表"，`Label.block` 全空
+   （60 个 label 里 59 个 block 长度为 0）。任何"按块统计"的字段都会读 0 —— 对白量、menu 数、
+   区间内 jump 全废。修：`load_script` 把 list 包成带 `.children` 的节点，`scan_bookmarks.collect()`
+   在 `block` 为空时**按线性顺序切片**重建 label 体。
+
+**副作用是收益**：同一 bug 在 8.x 上也有表现 —— Carnal 自己 `scenes.json` 里有 40 个 label
+`say_chars` 记成 0（`e5_cassandra_replay`、`e8_diane_replay` 这类只从画廊进的 label），修完
+其中 24 条越过 400 字的候选门槛 ⇒ 说明**上一轮的书签候选池本来就少算了**。所以 §17.5 那句
+"覆盖率自检"必须连候选池一起看，不能只盯守卫数。
+
+已加两道显式失败：`rpyc_extract` 抽出 0 条 ⇒ SystemExit 并解释；`scan_bookmarks` 读了 N 个
+`.rpyc` 却 0 label ⇒ SystemExit。**"0 结果"永远不该以漂亮报表的形式退出。**
+
+另外两条纪律：
+* 工具里凡是要读引擎记录的 `file` 字段（形如 `game/foo.rpy`）的，必须相对 `--game` 解析，
+  不能相对 cwd —— 否则在别的工程目录下跑，要么静默读空，要么**读到另一个游戏的同名文件**
+  （本轮就是这么踩的）。同一类只有 Windows 会中招的坑：`os.path.relpath(a, os.curdir)` 跨盘符
+  直接抛 `ValueError`（`--game D:/...` 而从 `C:` 里跑工具就是它），参照系要写 `--game` 并兜住异常。
+* 跨代复用工具前先做一次"数量级体检"：labels / strings / speakers 任一为 0 而文件数 > 0，
+  就是解析器根本没工作，不是这个游戏没内容。

@@ -44,6 +44,32 @@ class Stub:
         return "<%s %r>" % (self.__stubname__, sorted(self.__dict__.keys()))
 
 
+class _DictState(dict):
+    """dict subclass that tolerates the BUILD state py2 pickles attach.
+
+    Protocol-2 pickles of `renpy.python.RevertableDict` send the items *and* a state
+    dict, and plain `dict` has no `__dict__`, so unpickling died with
+    "'dict' object has no attribute '__dict__'". Aliasing to this class instead keeps
+    isinstance(x, dict) true.
+    """
+
+    def __setstate__(self, state):
+        parts = state if isinstance(state, tuple) else [state]
+        for p in parts:
+            if isinstance(p, dict):
+                self.update(p)
+
+
+class _ListState(list):
+    """list counterpart of _DictState."""
+
+    def __setstate__(self, state):
+        parts = state if isinstance(state, tuple) else [state]
+        for p in parts:
+            if isinstance(p, dict) and "listeditems" in p:
+                list.__setitem__(self, slice(0, len(self)), p["listeditems"])
+
+
 _BUILTIN_ALIASES = {
     ("renpy", "revertable.RevertableDict"): dict,
     ("renpy", "revertable.RevertableList"): list,
@@ -69,6 +95,30 @@ _BUILTIN_ALIASES = {
     ("renpy.python", "dict_class"): dict,
     ("renpy.python", "list_class"): list,
     ("renpy.python", "set_class"): set,
+    # Ren'Py 7.x / Python 2 pickles. `RevertableDict` lived in renpy.python back then
+    # and the builtins module was singular, so a 7.x .rpyc otherwise fell through to
+    # Stub - and a Stub cannot be item-assigned, which made load_script() return None
+    # and every caller report "0 labels" as if that were a clean result.
+    ("renpy.python", "RevertableDict"): _DictState,
+    ("renpy.python", "RevertableList"): _ListState,
+    ("renpy.python", "RevertableSet"): set,
+    ("renpy.revertable", "RevertableKeyedDefaultDict"): _DictState,
+    ("__builtin__", "object"): object,
+    ("__builtin__", "str"): str,
+    ("__builtin__", "unicode"): str,
+    ("__builtin__", "int"): int,
+    ("__builtin__", "long"): int,
+    ("__builtin__", "bool"): bool,
+    ("__builtin__", "float"): float,
+    ("__builtin__", "bytes"): bytes,
+    ("__builtin__", "bytearray"): bytearray,
+    ("__builtin__", "list"): _ListState,
+    ("__builtin__", "dict"): _DictState,
+    ("__builtin__", "tuple"): tuple,
+    ("__builtin__", "set"): set,
+    ("__builtin__", "frozenset"): frozenset,
+    ("__builtin__", "slice"): slice,
+    ("__builtin__", "complex"): complex,
 }
 
 _stub_cache = {}
@@ -169,12 +219,26 @@ def rpc2_slots(raw):
 
 
 def load_script(raw):
-    """Unpickle a .rpyc into (data, stmts); prefers slot 2."""
+    """Unpickle a .rpyc into (data, stmts); prefers slot 2.
+
+    Ren'Py 8 stores `stmts` as a `renpy.ast.File` node with `.children`; 7.x stores a
+    bare list. Both are handed back as something with `.children` so callers written
+    against 8.x keep working.
+    """
     for slot, payload in rpc2_slots(raw):
         try:
-            return load_stub(payload)
+            obj = load_stub(payload)
         except Exception:
             continue
+        if not isinstance(obj, tuple) or len(obj) != 2:
+            continue
+        data, stmts = obj
+        if isinstance(stmts, list):
+            holder = Stub()
+            holder.__stubname__ = "renpy.ast.File"
+            holder.children = stmts
+            stmts = holder
+        return (data, stmts)
     return None
 
 

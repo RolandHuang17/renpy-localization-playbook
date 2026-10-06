@@ -98,6 +98,30 @@ B 路线还有一个只在“冷进场景”才暴露的坑：绕过进度直接
 `define` 默认值。修法不是猜，是**从游戏自己的硬化场景里学**——扫 `if _in_replay:` 块里的
 `var = persistent.x` 收集成播种表。详见手册 §11.3 / §11.4。
 
+## 改文件之前：引擎到底加载哪一份
+
+所有覆盖层做法（汉化叠加、图鉴解锁、路线书签）都假设"我放的 loose 文件会盖掉归档里的同名内容"。
+这句假设只在特定条件下成立，而且**判据不是文件时间戳**：
+
+- `.rpy` 与同名 `.rpyc` 并存时，引擎比的是 md5（`.rpy` 源文摘要 vs `.rpyc` 末尾 16 字节）。
+  不等就现场编译 `.rpy` **并把这个 `.rpyc` 覆盖重写** —— 所以"复用游戏已有的文件名"不是纯新增，
+  备份与还原都必须 `.rpy` + `.rpyc` **成对**处理。能起新名字就起新名字。
+- 磁盘先于归档，但去重是按**完整路径名（含扩展名）**：放一个 loose `x.rpy` 挡不住归档里的
+  `x.rpyc`，同一个脚本会被注册两次（8.x 下还会在 `script_files.sort()` 抛 `TypeError`）。
+- 归档之间是 `sorted()` 再 `.reverse()` ⇒ 字典序最后者优先，所以官方更新包爱叫 `zz*.rpa`。
+- 归档里的 `.rpy` 永远不会被当脚本加载，只有 `.rpyc` 有用。
+
+`tools/override_audit.py` 把这四条原样实现了一遍，直接回答"哪一份真正生效 / 哪些条目存在但永远
+读不到 / 我这次会不会重写游戏的 `.rpyc`"：
+
+```bash
+python tools/override_audit.py --game game
+python tools/override_audit.py --game game --overlay /path/to/mod   # 模拟"装完这个 mod 之后"
+```
+
+研究社区 mod 时它就兑现了一次价值：作者往 `zzscripts.rpa` 里塞了打过补丁的 `update4`，但磁盘上
+那对 `update4.rpy`/`.rpyc` 先占了名 ⇒ **他改的那两行从来没执行过，而且一声不响**。手册 §18。
+
 ## 工具清单
 
 | 文件 | 职责 |
@@ -107,10 +131,11 @@ B 路线还有一个只在“冷进场景”才暴露的坑：绕过进度直接
 | `rpy_extract.py` | 模式 B 抽取（明文 `.rpy`） |
 | `rpyc_extract.py` | 模式 B 但游戏带 `.rpyc` 时的抽取器：反序列化引擎真正加载的 AST 取 `Say.what` / `Menu` 标题（`old` 与引擎查表的字节完全一致），`--reuse` 按 identifier 连自带官方译文。`Character` 显示名回落到读 `.rpy`——8.1.2 的 AST 里源码只剩位置 |
 | `textbox_fit.py` | 双语行数的量化决策：读 `gui.rpy` 的宽高与字号，从真源 JSON 统计"中文出框率 / 任一行出框率"，给出候选 `--text-size`（§5.2 第 1-2 步的数据来源） |
-| `scan_bookmarks.py` | **路线书签的场景枚举器**：从引擎真正加载的 `.rpyc` AST 列出全部 `label`，报出每个场景的节点范围、`_in_replay` 头/尾守卫、尾跳目标、区间外绕行清单、出场说话人，并自带守卫检测覆盖率自检。用来回答"这个游戏的场景能不能直接进、有多少条值得做书签" |
+| `scan_bookmarks.py` | **路线书签的场景枚举器**：从引擎真正加载的 `.rpyc` AST 列出全部 `label`，报出每个场景的节点范围、`_in_replay` 头/尾守卫（`return` 与 `renpy.end_replay()` 两种都认）、作者自己的退出斜坡 `exit_ramps`、尾跳目标、区间外绕行清单、出场说话人，并自带守卫检测覆盖率自检；读了文件却 0 label 会直接报错而不是出一份空报表。用来回答"这个游戏的场景能不能直接进、有多少条值得做书签" |
 | `build_bookmarks.py` | 把扫描结果 + 判定结果 + 规则编成游戏内读的 `game/cc_bookmark_data.rpy`；自动推导"每个 menu 该选第几项"（靠成对分支反查，推不出来进 review 不猜） |
 | `repair_json.py` | 回收侧机械修复 agent 手写的 JSON（key 丢开引号、值里有未转义引号）；修完必须与 group 的 id 集合完全对齐才写回，否则退回重派 |
 | `style_audit.py` | **跨批次风格闸门**（手册 §10.5）：20 个 agent 并行必然在括号全/半角、`...`→`……`、`--` 与 `——`、`{b}Diane's{/b}` 英文所有格残渣、`{b}` 里没译的强调词上分叉，而 `align_check` 只管错位和漏译、抓不到这些。`--apply` 只做机械项（并先备份真源 JSON），判不出来的一律只报告 |
+| `override_audit.py` | **加载与覆盖审计**（手册 §18）：按引擎真实规则（磁盘按完整名遮蔽归档、归档 `sorted()+reverse()`、`.rpy`↔`.rpyc` 靠 md5 配对）算出每个逻辑脚本实际加载哪一份，报出“存在但读不到”、磁盘+归档双注册、会被就地重写的 `.rpyc` 三类问题；`--overlay` 模拟安装后的状态 |
 | `make_selftest.py` + `selftest_template.rpy` | §9.0 的游戏内自检 harness：探针从真源 JSON 生成，走真实 say 屏幕，自动写 `translate_string` 命中报告 + 12 张截图 |
 | `tl_reuse.py` | 模式 B+ 复用官方译文：解析明文 `translate <lang>` 块，按内容配对（含说话人前缀形态、未知转义保留反斜杠、折叠空白二次配对） |
 | `denames.py` | 复用官方译文时，把音译人名还原成原文；`--seed` 可喂已知名字表出候选（**只出候选，别直接 `--apply`**，放宽闸门会抓出同句共现词） |

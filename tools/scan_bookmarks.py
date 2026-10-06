@@ -6,7 +6,8 @@ renpy/game.py:call_replay) gives a clean store, per-scene variable seeding and a
 full state restore on exit - exactly the semantics a bookmark needs. The catch is
 that a scene label must *stop* at its own boundary. Devs who bothered with the
 gallery write `if _in_replay:` at the head (re-seed names) and
-`if _in_replay: return` at the tail (don't fall through into the next 600 lines).
+`if _in_replay: return` (or `$ renpy.end_replay()`) at the tail (don't fall through
+into the next 600 lines).
 Most labels have neither, so entering them cold plays on into unrelated story.
 
 This tool reports, per label, the facts that decide that:
@@ -17,6 +18,8 @@ This tool reports, per label, the facts that decide that:
   speakers, say/menu counts  what the scene is made of
   seed_lines                the dev's own `if _in_replay:` fix-ups (what state a
                           cold entry actually needs)
+  exit_ramps                `if _in_replay: jump <trunk label>` - the dev's own way
+                          of dropping a replayed scene back onto the main path
 
 Nothing here guesses whether a scene is on-route; that is `bookmark_rules.json`
 plus a content pass. Output is localization/scenes.json (metadata) and, with
@@ -100,13 +103,20 @@ GUARD_SITES = set()   # (file, line) attributed by replay_guards
 def replay_guards(text_lines, start, stop):
     """head/tail `_in_replay` guards, read off the loose .rpy source.
 
-    Classify by what the guard block *does*, not where it sits: a block containing
-    `return` is the tail stop; a block containing `$ var = ...` is the dev re-seeding
-    state that a cold entry loses. Position is unreliable - some labels open with
-    `$ renpy.dynamic(...)` before their guard.
+    Classify by what the guard block *does*, not where it sits. Three idioms exist in
+    the wild and each means something different:
+
+      `return` / `$ renpy.end_replay()`   the tail stop - the scene ends cleanly
+      `$ var = persistent.x`              the dev re-seeds state a cold entry loses
+      `jump <label>`                      an exit ramp back onto the main path
+
+    The last two used to fall into the same bucket as "unknown", which under-reported
+    `tail_guard` and threw away the ramp target. Position is unreliable anyway - some
+    labels open with `$ renpy.dynamic(...)` before their guard.
     """
     head = tail = False
     seeds = []
+    ramps = []
     body = list(text_lines[start:min(stop, start + 4000)])
 
     for idx, line in enumerate(body):
@@ -122,14 +132,22 @@ def replay_guards(text_lines, start, stop):
             if len(nxt) - len(nxt.lstrip()) <= indent:
                 break
             block.append(nxt)
-        if any(re.match(r"^\s+return\b", b) for b in block):
+        stripped = [b.strip() for b in block]
+        stops = [s for s in stripped
+                 if re.match(r"^(return\b|(?:\$\s*)?renpy\.end_replay\(\s*\))", s)]
+        jump_targets = [re.match(r"^(?:jump|call)\s+(?:expression\s+)?([A-Za-z_]\w*)", s)
+                        for s in stripped]
+        ramps_here = [(start + idx + 1, mt.group(1)) for mt in jump_targets if mt]
+        ramps += ramps_here
+        seed_lines = [s for s in stripped if s.startswith("$") and "end_replay" not in s]
+        if stops:
             tail = True
-        elif any(b.strip().startswith("$") for b in block):
+        if seed_lines:
             head = True
-            seeds += [b.strip()[:90] for b in block if b.strip().startswith("$")][:10]
-        else:
+            seeds += [s[:90] for s in seed_lines][:10]
+        if not (stops or ramps_here or seed_lines):
             seeds.append("(mid-scene _in_replay branch at line %d)" % (start + idx + 1))
-    return head, tail, seeds
+    return head, tail, seeds, ramps
 
 
 
@@ -161,6 +179,30 @@ def collect(path):
             labels.append((name, fn, ln, n))
     labels.sort(key=lambda t: (t[1] or "", t[2]))
 
+    # Ren'Py 7.x hands back a FLATTENED statement list: every `Label.block` is empty
+    # and the statements live next to their label in linear order. Rebuild each
+    # label's body by slicing that order, or every per-scene stat reads as zero and
+    # the report looks like "a game with no dialogue".
+    # Ren'Py 7.x hands back a FLATTENED statement list: `Label.block` is empty and the
+    # statements sit next to their label in linear order. Rebuild those bodies by
+    # slicing the order, or every per-scene stat reads as zero and the report looks
+    # like "a game with no dialogue". Labels that do carry a block (8.x) are untouched.
+    if labels and not all(getattr(n, "block", None) for _a, _b, _c, n in labels):
+        pos = {id(n): i for i, n in enumerate(nodes)}
+        label_pos = sorted(pos[id(n)] for _a, _b, _c, n in labels)
+        rebuilt = []
+        for name, fn, ln, node in labels:
+            if getattr(node, "block", None):
+                rebuilt.append((name, fn, ln, node))
+                continue
+            here = pos[id(node)]
+            later = [p for p in label_pos if p > here]
+            stop = later[0] if later else len(nodes)
+            holder = R.Stub()
+            holder.children = nodes[here + 1:stop]
+            rebuilt.append((name, fn, ln, holder))
+        labels = rebuilt
+
     out = []
     for i, (name, fn, ln, node) in enumerate(labels):
         nxt = None
@@ -185,7 +227,7 @@ def analyse(rec, all_label_names, srclines):
 
     # rec["line"] is the `label foo:` statement's 1-based line; splitlines() index
     # rec["line"] is therefore the first line of its body.
-    head_guard, tail_guard, seed_lines = replay_guards(
+    head_guard, tail_guard, seed_lines, exit_ramps = replay_guards(
         srclines, rec["line"], (rec["range_end"] or len(srclines)) - 1)
 
     for g in body:
@@ -233,6 +275,7 @@ def analyse(rec, all_label_names, srclines):
         "say_chars": chars,
         "menus": menus,
         "seed_lines": seed_lines[:8],
+        "exit_ramps": [{"at": a, "target": t} for a, t in exit_ramps][:8],
     }
 
 
@@ -240,12 +283,33 @@ tgt_lines = {}
 SRC_CACHE = {}
 
 
+GAME_DIR = "game"   # set from --game; guard text must be resolved against it, not cwd
+
+
+def resolve_src(path):
+    """The engine records `game/foo.rpy`; that is relative to *its* game dir, not ours.
+
+    Resolving it against the current directory silently reads the wrong game (or
+    nothing at all), and guard detection then reports "0 sites" as a clean result.
+    """
+    cands = []
+    if path.startswith("game/"):
+        cands.append(os.path.join(GAME_DIR, path[5:]))
+    cands.append(os.path.join(GAME_DIR, path))
+    cands.append(path)          # last: cwd-relative can name a *different* game
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
 def source_lines(path):
     """The loose .rpy the .rpyc was compiled from (guard detection reads text)."""
     if path not in SRC_CACHE:
+        real = resolve_src(path)
         try:
-            SRC_CACHE[path] = open(path, encoding="utf-8-sig",
-                                   errors="replace").read().splitlines()
+            SRC_CACHE[path] = (open(real, encoding="utf-8-sig", errors="replace")
+                               .read().splitlines() if real else [])
         except OSError:
             SRC_CACHE[path] = []
     return SRC_CACHE[path]
@@ -263,6 +327,9 @@ def main():
     ap.add_argument("--per-group", type=int, default=6, help="candidates per classification batch")
     ap.add_argument("--text-chars", type=int, default=9000, help="dialogue budget per candidate")
     args = ap.parse_args()
+
+    global GAME_DIR
+    GAME_DIR = args.game
 
     rpyc = []
     for root, dirs, files in os.walk(args.game):
@@ -289,6 +356,12 @@ def main():
     for r in recs:
         names.add(r["label"])
     scenes = [analyse(r, names, source_lines(r["file"])) for r in recs]
+
+    if rpyc and not scenes:
+        raise SystemExit(
+            "read %d .rpyc file(s) and found 0 labels. That is not a clean result: the "
+            "reader returned None for every file (old .rpyc format, a packed engine, or "
+            "a wrong --game). Fix the reader before trusting any count below." % len(rpyc))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
@@ -343,15 +416,22 @@ def main():
     # Coverage self-check: guard detection is text-based, so a silent regex slip would
     # under-report and the caller would still trust `safe_cold_entry`. Compare against
     # the raw number of `_in_replay` mentions in the same files.
-    raw = 0
+    raw = read_ok = 0
     for path in sorted({r["file"] for r in recs if r["file"]}):
+        real = resolve_src(path)
+        if not real:
+            continue
+        read_ok += 1
         try:
-            raw += open(path, encoding="utf-8-sig", errors="replace").read().count("_in_replay")
+            raw += open(real, encoding="utf-8-sig", errors="replace").read().count("_in_replay")
         except OSError:
-            pass
+            read_ok -= 1
     found = len(GUARD_SITES)
-    lines.append("_in_replay sites: %d mentioned in .rpy / %d matched as `if _in_replay:`"
-                 % (raw, found))
+    lines.append("_in_replay sites: %d mentioned in %d/%d .rpy read / %d matched as `if _in_replay:`"
+                 % (raw, read_ok, len({r["file"] for r in recs if r["file"]}), found))
+    if raw and not read_ok:
+        lines.append("  !! WARNING: the guard text could not be read at all - head_guard/"
+                     "tail_guard are meaningless here, pass --game pointing at the real game dir")
     if raw and found * 2 < raw:
         lines.append("  !! WARNING: the scanner sees far fewer guard sites than exist - "
                      "guard detection has slipped, do not trust safe_cold_entry")
@@ -359,6 +439,8 @@ def main():
                  % (sum(1 for sc in scenes if sc["safe_cold_entry"]),
                     sum(1 for sc in scenes if sc["head_guard"] and not sc["tail_guard"]),
                     sum(1 for sc in scenes if sc["tail_guard"] and not sc["head_guard"])))
+    lines.append("dev's own exit ramps: %d labels jump back to the trunk from inside "
+                 "`if _in_replay:`" % sum(1 for sc in scenes if sc["exit_ramps"]))
 
     report = "\n".join(lines) + "\n"
     with open(args.report, "w", encoding="utf-8") as f:
